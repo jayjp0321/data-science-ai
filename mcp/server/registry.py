@@ -4,9 +4,6 @@ def register_tool(tool):
     TOOLS[tool.name] = tool
 
 def get_tool(name):
-<<<<<<< HEAD
-    return TOOLS.get(name)
-=======
     return TOOLS.get(name)
 
 def list_tools():
@@ -20,4 +17,3 @@ def list_tools():
         })
 
     return tool_list
->>>>>>> eaf119e (Implemented MCP-based energy forecasting agent with:)
