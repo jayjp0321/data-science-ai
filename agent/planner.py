@@ -67,6 +67,16 @@ If no tools needed:
 
 def parse_plan(plan_text):
     try:
-        return json.loads(plan_text)
-    except Exception:
+        # 🔥 Remove markdown formatting
+        cleaned = plan_text.strip()
+
+        if cleaned.startswith("```"):
+            cleaned = cleaned.replace("```json", "")
+            cleaned = cleaned.replace("```", "")
+            cleaned = cleaned.strip()
+
+        return json.loads(cleaned)
+
+    except Exception as e:
+        print("Parsing Error:", e)
         return []

@@ -9,36 +9,47 @@ from configs.settings import (
     MEMORY_WINDOW
 )
 
-# Initialize client
-client = anthropic.Anthropic(
-    api_key=ANTHROPIC_API_KEY
-)
-
+client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 memory = ConversationMemory(MEMORY_WINDOW)
 
 
-# -------------------------------
-# Agent Runner
-# -------------------------------
 def run_agent(query):
 
     memory.add("user", query)
 
+    # -------------------------------
     # Step 1: Create plan
+    # -------------------------------
     plan_text = create_plan(query)
     plan = parse_plan(plan_text)
+    tool_results_blocks = []
 
-    results = []
-
-    # Step 2: Execute plan
-    for step in plan:
+    # -------------------------------
+    # Step 2: Execute tools
+    # -------------------------------
+    for idx, step in enumerate(plan):
         tool_name = step.get("tool")
         args = step.get("args", {})
 
         result = call_tool(tool_name, args)
-        results.append({tool_name: result})
+        # ✅ Safety check
+        if result.get("status") == "failed":
+            return f"Tool `{tool_name}` failed: {result.get('error')}"
+        # 🔥 Create MCP-compliant tool_result block
+        tool_results_blocks.append({
+        "type": "tool_result",
+        "tool_use_id": f"tool_{idx}",
+        "content": [
+            {
+                "type": "text",
+                "text": str(result)
+            }
+        ]
+    })
 
-    # Step 3: Final reasoning
+    # -------------------------------
+    # Step 3: Final reasoning (MCP style)
+    # -------------------------------
     final_response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
@@ -47,18 +58,27 @@ def run_agent(query):
             {
                 "role": "user",
                 "content": f"""
-User query: {query}
+    User query: {query}
 
-Tool results:
-{results}
+    Executed plan:
+    {plan}
 
-Provide final answer with reasoning.
-"""
+    Tool results:
+    {tool_results_blocks}
+
+    Use this data to provide final answer with reasoning.
+    """
             }
         ]
     )
-
-    final_text = final_response.content[0].text
+    
+    # -------------------------------
+    # Step 4: Extract response
+    # -------------------------------
+    final_text = ""
+    for block in final_response.content:
+        if hasattr(block, "text"):
+            final_text += block.text
 
     memory.add("assistant", final_text)
 

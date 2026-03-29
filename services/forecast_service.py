@@ -84,7 +84,7 @@ class EnergyForecastService:
         start = pd.to_datetime(date)
         end = start + pd.Timedelta(days=1) - pd.Timedelta(hours=1)
 
-        hourly_index = pd.date_range(start=start, end=end, freq="H")
+        hourly_index = pd.date_range(start=start, end=end, freq="h")
 
         df = pd.DataFrame(index=hourly_index)
 
