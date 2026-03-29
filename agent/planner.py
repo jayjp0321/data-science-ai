@@ -1,7 +1,7 @@
 import anthropic
 import json
 from configs.settings import MODEL_NAME, MAX_TOKENS, ANTHROPIC_API_KEY  
-from mcp.server.registry import list_tools
+from mcp_core.server.registry import list_tools
 from datetime import datetime
 
 today = datetime.today().strftime("%Y-%m-%d")

@@ -1,4 +1,4 @@
-from mcp.schemas.tool_schema import Tool
+from mcp_core.schemas.tool_schema import Tool
 from services.forecast_service import EnergyForecastService
 
 

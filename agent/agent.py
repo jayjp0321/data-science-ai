@@ -3,7 +3,7 @@ from services.solar_adjustment_service import SolarAdjustmentService
 import anthropic
 from agent.planner import create_plan, parse_plan
 from agent.memory import ConversationMemory
-from mcp.client.client import call_tool
+from mcp_core.client.client import call_tool
 from configs.settings import (
     ANTHROPIC_API_KEY,
     MODEL_NAME,

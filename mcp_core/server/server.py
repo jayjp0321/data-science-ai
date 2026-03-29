@@ -1,4 +1,4 @@
-from mcp.server.registry import get_tool
+from mcp_core.server.registry import get_tool
 
 def handle_request(tool_name, args):
     tool = get_tool(tool_name)

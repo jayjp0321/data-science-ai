@@ -1,5 +1,5 @@
 from agent.agent import run_agent
-from mcp.server.init_tools import init_tools
+from mcp_core.server.init_tools import init_tools
 
 def main():
     init_tools()

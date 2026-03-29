@@ -1,8 +1,8 @@
-from mcp.schemas.tool_schema import Tool
+from mcp_core.schemas.tool_schema import Tool
 from services.weather_service import WeatherService
 from configs.settings import DEFAULT_LOCATION
 import requests
-from mcp.schemas.tool_schema import Tool
+from mcp_core.schemas.tool_schema import Tool
 from services.weather_service import WeatherService
 from configs.settings import DEFAULT_LOCATION
 

@@ -7,3 +7,5 @@ numpy
 python-dotenv
 requests
 statsmodels
+mcp
+fastmcp

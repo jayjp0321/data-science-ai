@@ -1,4 +1,4 @@
-from mcp.server.registry import register_tool
+from mcp_core.server.registry import register_tool
 
 #from tools.forecasting.forecast_tool import forecast_tool
 from tools.energy.forecast_tool import energy_forecast_tool
