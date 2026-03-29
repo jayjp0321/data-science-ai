@@ -19,3 +19,7 @@ MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", 10))
 # API Keys
 # -----------------------
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
+# -----------------------
+# Weather tool default location
+# -----------------------
+DEFAULT_LOCATION = "Spain"

@@ -8,11 +8,12 @@ def main():
     
     while True:
         query = input("\nUser: ")
-        if query.lower() in ["exit", "quit"]:
+        if query.lower() in ["exit", "quit", "bye"]:
             break
         
         response = run_agent(query)
         print(f"\nAgent: {response}")
+
 
 if __name__ == "__main__":
     main()

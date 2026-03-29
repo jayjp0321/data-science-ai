@@ -19,9 +19,15 @@ def get_energy_forecast(date: str):
     try:
         df = service.get_hourly_forecast(date)
 
+        hourly_forecast = {
+            k.strftime("%Y-%m-%d %H:%M:%S"): float(v)
+            for k, v in df["forecast_hourly"].to_dict().items()
+        }
+
         return {
             "date": date,
-            "hourly_forecast": df["forecast_hourly"].to_dict(),
+            "hourly_forecast": hourly_forecast,
+            "total": float(df["forecast_hourly"].sum()),
             "status": "success"
         }
 
@@ -38,7 +44,10 @@ def get_energy_forecast(date: str):
 # -------------------------------
 energy_forecast_tool = Tool(
     name="get_energy_forecast",
-    description="Get hourly solar energy production forecast using UCM model and temporal disaggregation",
+    description = """
+Get solar energy production forecast (MW).
+Useful for predicting expected generation.
+""",
     input_schema={
         "date": "string"
     },

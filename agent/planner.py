@@ -1,7 +1,10 @@
 import anthropic
 import json
-from configs.settings import MODEL_NAME, MAX_TOKENS, ANTHROPIC_API_KEY
+from configs.settings import MODEL_NAME, MAX_TOKENS, ANTHROPIC_API_KEY  
 from mcp.server.registry import list_tools
+from datetime import datetime
+
+today = datetime.today().strftime("%Y-%m-%d")
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -16,44 +19,66 @@ def create_plan(query):
 
         # ✅ SYSTEM PROMPT (behavior control)
         system="""
-You are an AI planner for an intelligent agent.
+                You are an intelligent AI planner for an MCP-based agent.
 
-Your responsibilities:
-- Understand the user query
-- Decide whether tools are needed
-- Select appropriate tools if required
-- If tools are not needed, respond with empty list []
+                Your responsibilities:
+                - Understand the user query deeply
+                - Extract structured parameters like date, location
+                - Decide whether tools are needed
+                - Select one or more tools if required
+                - Combine tools when reasoning is needed
 
-Rules:
-- Do NOT force tool usage
-- Use tools ONLY when external data is required
-- Prefer reasoning if answer can be derived without tools
-- Always return valid JSON
-- Do NOT include explanation outside JSON
-""",
+                Guidelines:
+
+                1. ALWAYS extract DATE if present in query
+                - Convert to format: YYYY-MM-DD
+                - Example: "13th Jan 2024" → "2024-01-13"
+
+                2. Tool usage:
+                - Factual queries → single tool
+                - Analytical queries (why, explain) → multiple tools
+
+                3. Tool selection:
+                - get_energy_forecast → for solar production
+                - get_weather_data → for environmental factors
+
+                4. IMPORTANT:
+                - If using weather tool → ALWAYS pass "date"
+                - Do NOT use placeholders like "default"
+
+                5. If no tools required:
+                return []
+
+                6. Always return STRICT JSON list:
+                [
+                {"tool": "tool_name", "args": {...}}
+                ]
+
+                NO explanation outside JSON.
+                """,
 
         messages=[
             {
                 "role": "user",
-                "content": f"""
-User query:
-{query}
+                "content":f"""
+                        User query:
+                        {query}
 
-Available tools:
-{json.dumps(tools, indent=2)}
+                        Today's date:
+                        {today}
 
-Task:
-Return a JSON list of steps.
+                        Available tools:
+                        {json.dumps(tools, indent=2)}
 
-Format:
-[
-  {{"tool": "tool_name", "args": {{...}}}},
-  ...
-]
+                        Important:
+                        - Convert relative dates:
+                        "today" → {today}
+                        "tomorrow" → next day from today
+                        - Use realistic dates ONLY
+                        - Weather API supports near-term forecast only
 
-If no tools needed:
-[]
-"""
+                        Return ONLY JSON list.
+                        """
             }
         ]
     )
