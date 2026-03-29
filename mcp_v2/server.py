@@ -1,5 +1,5 @@
 from fastmcp import FastMCP
-from mcp_core_v2.tools.weather_tool import get_weather_forecast
+from mcp_v2.tools.weather_tool import get_weather_forecast
 
 mcp = FastMCP("Energy-AI-MCP")
 
