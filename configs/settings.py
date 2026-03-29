@@ -1,7 +1,5 @@
 import os
-<<<<<<< HEAD
 
-=======
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,5 +18,4 @@ MEMORY_WINDOW = int(os.getenv("MEMORY_WINDOW", 10))
 # -----------------------
 # API Keys
 # -----------------------
->>>>>>> eaf119e (Implemented MCP-based energy forecasting agent with:)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
