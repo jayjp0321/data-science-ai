@@ -1,8 +1,10 @@
 import json
 import anthropic
 import asyncio
-from services.solar_adjustment_service import SolarAdjustmentService
+
 from agent.memory import ConversationMemory
+from agent.planner import create_plan, parse_plan
+
 from configs.settings import (
     ANTHROPIC_API_KEY,
     MODEL_NAME,
@@ -10,68 +12,84 @@ from configs.settings import (
     MEMORY_WINDOW
 )
 
-#from fastmcp import MCPClient
 from fastmcp.client import Client
-from fastmcp.client.transports.stdio import StdioTransport
-
-# -------------------------------
-# MCP CLIENT
-# -------------------------------
-
-transport = StdioTransport(
-    command="python",
-    args=["-m", "mcp_v2.server"]
-)
-
-mcp_client = Client(transport)
+from fastmcp.client.transports import StdioTransport
+from datetime import datetime, timedelta
 
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 memory = ConversationMemory(MEMORY_WINDOW)
 
 
-# -------------------------------
-# SYSTEM PROMPT
-# -------------------------------
-SYSTEM_PROMPT = """
-You are an energy AI agent.
+# ---------------------------------------------------
+# 🔥 EVALUATOR (continue / stop / replan)
+# ---------------------------------------------------
+def evaluate_step(query, step, result_text, tool_outputs):
 
-You have access to tools:
-- get_weather_forecast_tool
+    tool_name = step.get("tool")
 
-Use tools whenever required.
+    # ----------------------------------
+    # ✅ HARD RULE (deterministic)
+    # ----------------------------------
+    if tool_name == "get_adjusted_forecast_tool":
+        return {"action": "stop"}
 
-If the user asks about weather or solar production,
-you MUST call tools before answering.
+    # ----------------------------------
+    # Optional: detect final metrics
+    # ----------------------------------
+    if "adjusted_total_kwh" in result_text:
+        return {"action": "stop"}
 
-Always base your answer on tool results.
+    # ----------------------------------
+    # 🔥 FALLBACK → LLM evaluator
+    # ----------------------------------
+    response = client.messages.create(
+        model=MODEL_NAME,
+        max_tokens=200,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
+User query:
+{query}
+
+Executed step:
+{step}
+
+Tool result:
+{result_text}
+
+Return STRICT JSON:
+{{"action": "continue" | "stop" | "replan"}}
+
+Rules:
+- stop if enough info
+- continue if more tools needed
+- replan if wrong tool
 """
+            }
+        ]
+    )
 
+    text = ""
+    for block in response.content:
+        if hasattr(block, "text"):
+            text += block.text
 
-# -------------------------------
-# JSON SAFE HELPER
-# -------------------------------
-def make_json_safe(obj):
-    import pandas as pd
-
-    if isinstance(obj, dict):
-        return {str(k): make_json_safe(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [make_json_safe(v) for v in obj]
-    elif isinstance(obj, pd.Timestamp):
-        return str(obj)
-    elif hasattr(obj, "item"):
-        return obj.item()
-    else:
-        return obj
-
-# ✅ ENTRY POINT (used by main.py)
+    try:
+        return json.loads(text)
+    except:
+        return {"action": "continue"}
+# ---------------------------------------------------
+# 🔥 MAIN ENTRY
+# ---------------------------------------------------
 def run_agent(query):
     return asyncio.run(_run_agent_async(query))
 
-# -------------------------------
-#  ACTUAL LOGIC (async)
-# -------------------------------
+
+# ---------------------------------------------------
+# 🔥 CORE AGENT LOOP
+# ---------------------------------------------------
 async def _run_agent_async(query):
 
     memory.add("user", query)
@@ -79,67 +97,127 @@ async def _run_agent_async(query):
     final_text = ""
     tool_outputs = {}
 
-    async with mcp_client:
+    # -------------------------------
+    # 🔥 STEP 1: INITIAL PLAN
+    # -------------------------------
+    plan_text = create_plan(query)
+    plan = parse_plan(plan_text)
 
-        while True:
+    print("[INITIAL PLAN]", plan)
 
-            response = client.messages.create(
-                model=MODEL_NAME,
-                max_tokens=MAX_TOKENS,
-                tools=await mcp_client.list_tools(),
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    *memory.get()
-                ]
+    current_plan = plan
+    step_index = 0
+    replan_count = 0
+    MAX_REPLANS = 2
+
+    # -------------------------------
+    # 🔥 MCP CLIENT
+    # -------------------------------
+    transport = StdioTransport(
+        command="python",
+        args=["-m", "mcp_v2.server"]
+    )
+
+    async with Client(transport) as mcp_client:
+
+        while step_index < len(current_plan):
+
+            step = current_plan[step_index]
+            tool_name = step.get("tool")
+            tool_input = step.get("args", {})
+
+            # -------------------------------
+            # 🔥 DATE NORMALIZATION
+            # -------------------------------
+            if "date" in tool_input:
+                date_str = tool_input["date"].lower().strip()
+                today = datetime.today()
+
+                if date_str == "tomorrow":
+                    tool_input["date"] = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+                elif date_str == "today":
+                    tool_input["date"] = today.strftime("%Y-%m-%d")
+                elif date_str == "yesterday":
+                    tool_input["date"] = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+            print(f"[EXEC] {tool_name} | input={tool_input}")
+
+            # -------------------------------
+            # 🔥 MCP TOOL CALL
+            # -------------------------------
+            result = await mcp_client.call_tool(tool_name, tool_input)
+
+            result_text = "".join(
+                item.text for item in result.content if hasattr(item, "text")
             )
 
-            tool_used = False
+            print(f"[RESULT] {result_text}")
 
-            for block in response.content:
+            tool_outputs[tool_name] = result_text
 
-                if block.type == "text":
-                    final_text += block.text
+            # -------------------------------
+            # 🔥 EVALUATE STEP
+            # -------------------------------
+            decision = evaluate_step(query, step, result_text, tool_outputs)
 
-                elif block.type == "tool_use":
+            print(f"[DECISION] {decision}")
 
-                    tool_used = True
-
-                    tool_name = block.name
-                    tool_input = block.input
-
-                    print(f"[MCP TOOL CALL] {tool_name} | input={tool_input}")
-
-                    result = await mcp_client.call_tool(tool_name, tool_input)
-
-                    print(f"[MCP RESULT] {result}")
-
-                    tool_outputs[tool_name] = result
-
-                    memory.add("assistant", response.content)
-
-                    memory.add("user", [{
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": json.dumps(make_json_safe(result))
-                    }])
-
-            if not tool_used:
+            # -------------------------------
+            # 🔥 DECISION HANDLING
+            # -------------------------------
+            if decision.get("action") == "stop":
+                print("[STOPPED EARLY]")
                 break
 
-    # Fusion logic remains same
-    adjuster = SolarAdjustmentService()
+            elif decision.get("action") == "replan":
 
-    energy_result = tool_outputs.get("get_energy_forecast_tool")
-    weather_result = tool_outputs.get("get_weather_forecast_tool")
+                if replan_count >= MAX_REPLANS:
+                    print("[REPLAN LIMIT REACHED]")
+                    break
 
-    if energy_result and weather_result:
-        adjusted_result = adjuster.adjust_forecast(
-            energy_result,
-            weather_result
-        )
+                replan_count += 1
 
-        final_text += "\n\nAdjusted Forecast:\n"
-        final_text += json.dumps(make_json_safe(adjusted_result), indent=2)
+                print("[REPLANNING...]")
+
+                new_plan_text = create_plan(query, tool_outputs)
+                current_plan = parse_plan(new_plan_text)
+
+                print("[NEW PLAN]", current_plan)
+
+                step_index = 0
+                continue
+
+            else:
+                step_index += 1
+
+    # -------------------------------
+    # 🔥 FINAL RESPONSE
+    # -------------------------------
+    final_response = client.messages.create(
+        model=MODEL_NAME,
+        max_tokens=MAX_TOKENS,
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
+User query:
+{query}
+
+Executed plan:
+{current_plan}
+
+Tool outputs:
+{tool_outputs}
+
+Provide final answer with reasoning.
+"""
+            }
+        ]
+    )
+
+    for block in final_response.content:
+        if hasattr(block, "text"):
+            final_text += block.text
 
     memory.add("assistant", final_text)
 

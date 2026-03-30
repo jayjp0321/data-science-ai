@@ -23,3 +23,9 @@ ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 # Weather tool default location
 # -----------------------
 DEFAULT_LOCATION = "Spain"
+
+# -----------------------
+# Forecast tool paths
+# -----------------------
+MODEL_PATH = "models/energy/solar_forecast/ucm_model_2020_2023.pkl"
+WEIGHTS_PATH = "models/energy/solar_forecast/hourly_weights.pkl"
