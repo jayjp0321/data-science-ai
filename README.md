@@ -105,6 +105,7 @@ Confidence-based planning
 FastAPI deployment
 UI dashboard
 
+## 9. API Architecture Flow
 ```mermaid
 flowchart TD
 
