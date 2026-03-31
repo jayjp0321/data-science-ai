@@ -2,12 +2,15 @@
 # ⚡ MCP-Based Energy AI Agent
 
 An intelligent energy analysis agent built using **Model Context Protocol (MCP)** with:
+This release introduces a production-grade MCP-native hybrid agent architecture with:
 
-- 🔁 Planner-driven reasoning
-- 🧠 LLM-based decision making
-- ⚙️ MCP tool execution
-- 🔄 Self-correcting (replanning) architecture
-- 🌤️ Weather-aware solar forecasting
+✔ Planner-driven execution
+✔ MCP-based tool orchestration
+✔ Evaluator loop (self-correction)
+✔ Argument sanitization layer
+✔ Deterministic tool control
+✔ Location constraint handling (Spain-only system)
+✔ Dockerized deployment
 
 ---
 
@@ -24,19 +27,24 @@ This project implements a **multi-stage AI agent system** that can:
 ---
 
 # 🧠 Core Architecture
+
 User Query
-↓
+   ↓
 Planner (LLM)
-↓
+   ↓
 Execution Loop
-↓
-MCP Client → MCP Server → Tools
-↓
-Evaluator (LLM + Rules)
-↓
-Replan (if needed)
-↓
-Final Response (LLM)
+   ↓
+Sanitization Layer (critical)
+   ↓
+MCP Tool Execution
+   ↓
+Evaluator (LLM + rules)
+   ↓
+Final Reasoning (LLM)
+   ↓
+Context Injection Layer (Spain constraint)
+   ↓
+Final Response
 
 
 ---
@@ -59,6 +67,11 @@ Final Response (LLM)
         - Registers tools
         - Executes business logic
 
+## Argument Sanitization Layer (NEW)
+LLM may generate invalid arguments based on the user query- since this system is designed on Spain data
+User will get the prompt even if user enquire abotu the other location. That why before calling this layer
+sanitize the input to the tools.
+
 ## 3. Tools (MCP)
 🌤️ get_weather_forecast_tool
         -Fetches weather data from Open-Meteo API
@@ -71,6 +84,7 @@ Final Response (LLM)
             -solar forecast
         . Applies adjustment logic
         . Returns final production
+
 
 ## 4.  Final Reasoning (LLM)
 
@@ -99,11 +113,8 @@ Wrong plan → evaluator detects → replan → continue
 ✅ Production-ready architecture
 
 ## 8. 🧠 Future Improvements
-Parallel tool execution
-Tool dependency graph
-Confidence-based planning
-FastAPI deployment
-UI dashboard
+API layer (FastAPI)
+UI integration
 
 ## 9. API Architecture Flow
 ```mermaid
@@ -131,6 +142,9 @@ flowchart TD
 
     I --> J[User Output]
 ```
+
+## Dockerization (NEW)
+The agent is fully containerized.
 
 ## Note
 This project may contain some extra files as it is the outcome of a transition from an MCP implementation in Python to using readily available FastMCP libraries. For better understanding of the files included in the project scope, please refer to the imports used in the code. Some of them are mentioned below:
