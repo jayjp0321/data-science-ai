@@ -132,4 +132,10 @@ flowchart TD
     I --> J[User Output]
 ```
 
-
+## Note: This project might contains some extra files as this was an outcome of tranision from MCP implementaion using python to use readymate available FastMCP libraries, for better understanding of files used in project scope reffer imports used in the code. Some of them are mentioned below
+- mcp_core; This folder is not used in the project scope.
+- tools : this folder has also not been consumed as of not in this project but this has been kept from      future scope.
+-  services: This folder also contains unused file name data_loader.py which can be consumed further for future enhancement.
+- models: This folder contains multiple folder with the name of model algorithm tried for solar energy forecast(Spain) but in the scope of project only UnobservedComponentModel has been used which you'll find inside modles/energy/solar_forecast because objective of this project to comeup with a agent prototype with usage of MCP with the integration energy forecast model.
+- test: Completely unused folder as of now.
+- data: Future scope
