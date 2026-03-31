@@ -1,0 +1,24 @@
+# version: "3.9"
+
+# services:
+#   energy-agent:
+#     build: .
+#     container_name: energy-ai-agent
+#     restart: always
+#     env_file:
+#       - .env
+#     working_dir: /app
+#     command: python main.py
+
+# TO deploy a sepecific version of the image, use the following configuration:
+services:
+  energy-agent:
+    image: energy-ai-agent:latest
+    container_name: energy-ai-agent
+    stdin_open: true   # = -i
+    tty: true          # = -t
+    restart: always
+    env_file:
+      - .env
+    working_dir: /app
+    command: python main.py
