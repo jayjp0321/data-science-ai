@@ -77,3 +77,4 @@ Thumbs.db
 *.sqlite3
 *.db
 *.pkl
+api.log
