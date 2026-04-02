@@ -1,9 +1,0 @@
-# Development override for docker-compose. This file is ignored by git, so you can use it to mount your local code and run it in the container without affecting the production configuration.
-version: "3.9"
-
-services:
-  energy-agent:
-    volumes:
-      - .:/app
-    working_dir: /app
-    command: python main.py

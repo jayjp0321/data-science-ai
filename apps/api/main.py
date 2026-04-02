@@ -71,6 +71,32 @@ class ChatResponse(BaseModel):
     response: str
     data: Dict[str, Any]      # Optional structured data from tools to return hourly forecast in table format
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+@app.get("/ready")
+async def readiness():
+    try:
+        client = getattr(app.state, "mcp_client", None)
+
+        if client is None:
+            return {
+                "status": "not_ready",
+                "reason": "MCP client not initialized"
+            }
+
+        # Optional deeper checks (future-ready)
+        # e.g. ping tools, lightweight LLM check
+
+        return {"status": "ready"}
+
+    except Exception as e:
+        logger.error(f"[READINESS_ERROR] {str(e)}")
+        return {
+            "status": "not_ready",
+            "reason": str(e)
+        }
 
 # ---------------------------------------------------
 # 🔥 API ENDPOINT

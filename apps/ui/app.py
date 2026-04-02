@@ -36,7 +36,8 @@ if not logger.handlers:
 # ---------------------------------------------------
 st.title("⚡ Energy AI Chatbot")
 
-API_URL = "http://localhost:8000/chat"
+#API_URL = "http://localhost:8000/chat"
+API_URL = "http://backend:8000/chat"
 
 # ---------------------------------------------------
 # 🔥 SESSION STATE INIT

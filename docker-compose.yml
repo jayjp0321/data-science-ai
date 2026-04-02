@@ -1,24 +1,34 @@
-# version: "3.9"
-
-# services:
-#   energy-agent:
-#     build: .
-#     container_name: energy-ai-agent
-#     restart: always
-#     env_file:
-#       - .env
-#     working_dir: /app
-#     command: python main.py
-
-# TO deploy a sepecific version of the image, use the following configuration:
 services:
-  energy-agent:
-    image: energy-ai-agent:latest
-    container_name: energy-ai-agent
-    stdin_open: true   # = -i
-    tty: true          # = -t
-    restart: always
-    env_file:
-      - .env
-    working_dir: /app
-    command: python main.py
+  backend:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: energy_api
+    ports:
+      - "8000:8000"        # ✅ KEEP THIS
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+
+    # 🔥 ADD THIS
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  ui:
+    build:
+      context: .
+      dockerfile: apps/ui/Dockerfile
+    container_name: energy_ui
+    ports:
+      - "8501:8501"        # ✅ KEEP THIS
+    volumes:
+      - .:/app
+
+    # 🔥 REPLACE depends_on
+    depends_on:
+      backend:
+        condition: service_healthy
