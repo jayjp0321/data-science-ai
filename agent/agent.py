@@ -70,7 +70,35 @@ def sanitize_args(tool_name, args):
     allowed = tool_schemas.get(tool_name, set())
     return {k: v for k, v in args.items() if k in allowed}
 
+# ---------------------------------------------------
+# 🔥 RESULT EXTRACTION (EXAMPLE FOR STRUCTURED DATA)
+# ---------------------------------------------------
 
+def extract_hourly_data(result_raw):
+    try:
+        for item in result_raw:
+            if hasattr(item, "text"):
+                text = item.text
+
+                # Convert string → dict
+                data_dict = json.loads(text)
+
+                rows = []
+                for timestamp, value in data_dict.items():
+                    hour = int(timestamp.split(" ")[1].split(":")[0])
+
+                    rows.append({
+                        "hour": hour,
+                        "production_mw": value
+                    })
+
+                return rows
+
+    except Exception as e:
+        logger.error(f"[EXTRACT_ERROR] {str(e)}")
+
+    return []
+    
 # ---------------------------------------------------
 # 🔥 MCP CLIENT INITIALIZATION (ASYNC + RETURN)
 # ---------------------------------------------------
@@ -185,15 +213,19 @@ async def run_agent_async(query, mcp_client):
         logger.info(f"[SANITIZED INPUT] {clean_args}")
 
         result = await mcp_client.call_tool(tool_name, clean_args)
-
+        result_raw = result.content  # KEEP STRUCTURE
         result_text = "".join(
             item.text for item in result.content if hasattr(item, "text")
         )
 
         logger.info(f"[RESULT] {result_text}")
 
-        tool_outputs[tool_name] = result_text
-
+        #tool_outputs[tool_name] = result_text
+        tool_outputs[tool_name] = {
+            "text": result_text,
+            "raw": result_raw,
+            "structured": extract_hourly_data(result_raw)
+        }
         # EVALUATION
         decision = evaluate_step(query, step, result_text, tool_outputs)
         logger.info(f"[DECISION] {decision}")
@@ -221,7 +253,7 @@ async def run_agent_async(query, mcp_client):
 
         else:
             step_index += 1
-
+    llm_tool_outputs = { k: v["text"] for k, v in tool_outputs.items()}
     # FINAL RESPONSE
     final_response = client.messages.create(
         model=MODEL_NAME,
@@ -247,7 +279,7 @@ Executed plan:
 {current_plan}
 
 Tool outputs:
-{tool_outputs}
+{llm_tool_outputs}
 
 -----------------------------------
 
@@ -275,5 +307,8 @@ Generate the final answer using STRICT FORMAT.
 
     final_text = add_system_context(final_text, query)
     memory.add("assistant", final_text)
-
-    return final_text
+    return {
+                "text": final_text,
+                "data": tool_outputs
+            }
+    #return final_text

@@ -2,10 +2,10 @@ import time
 import logging
 from logging.handlers import RotatingFileHandler
 from contextlib import asynccontextmanager
-
+from typing import Dict, Any
 from fastapi import FastAPI
 from pydantic import BaseModel
-
+import asyncio
 from agent.agent import run_agent_async, start_mcp_client
 
 
@@ -65,8 +65,11 @@ class ChatRequest(BaseModel):
     message_id: str
 
 
+
+
 class ChatResponse(BaseModel):
     response: str
+    data: Dict[str, Any]      # Optional structured data from tools to return hourly forecast in table format
 
 
 # ---------------------------------------------------
@@ -85,17 +88,21 @@ async def chat(request: ChatRequest):
     try:
         logger.info(f"[AGENT_START][{message_id}] Running async agent")
 
-        result = await run_agent_async(
-            query,
-            app.state.mcp_client
+        result = await asyncio.wait_for(
+            run_agent_async(query, app.state.mcp_client),
+            timeout=90
         )
 
         latency = time.time() - start_time
 
         logger.info(f"[AGENT_END][{message_id}] Completed")
         logger.info(f"[API_LATENCY][{message_id}] {latency:.2f}s")
-
-        return {"response": result}
+        logger.info(f"[DATA_KEYS][{message_id}] {list(result['data'].keys())}")
+        return {
+                    "response": result["text"],
+                    "data": result["data"]
+                }
+        #return {"response": result}
 
     except Exception as e:
         latency = time.time() - start_time
@@ -104,4 +111,6 @@ async def chat(request: ChatRequest):
             f"[API_ERROR][{message_id}] {str(e)} | latency={latency:.2f}s"
         )
 
-        return {"response": f"Error: {str(e)}"}
+        return {"response": f"Error: {str(e)}",
+                "data": {}
+                }
