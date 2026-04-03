@@ -1,6 +1,5 @@
 import json
 import anthropic
-import asyncio
 import logging
 
 from agent.memory import ConversationMemory
@@ -19,14 +18,14 @@ from datetime import datetime, timedelta
 
 
 # ---------------------------------------------------
-# 🔥 LOGGING SETUP
+# 🔥 LOGGING (ROOT HANDLED)
 # ---------------------------------------------------
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
+logger.propagate = True
 
 
 # ---------------------------------------------------
-# 🔥 GLOBAL CLIENTS (SAFE)
+# 🔥 GLOBAL CLIENTS
 # ---------------------------------------------------
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 memory = ConversationMemory(MEMORY_WINDOW)
@@ -60,6 +59,9 @@ def add_system_context(final_text, query):
     return final_text + note
 
 
+# ---------------------------------------------------
+# 🔥 TOOL HELPERS
+# ---------------------------------------------------
 def sanitize_args(tool_name, args):
     tool_schemas = {
         "get_weather_forecast_tool": {"date"},
@@ -70,18 +72,12 @@ def sanitize_args(tool_name, args):
     allowed = tool_schemas.get(tool_name, set())
     return {k: v for k, v in args.items() if k in allowed}
 
-# ---------------------------------------------------
-# 🔥 RESULT EXTRACTION (EXAMPLE FOR STRUCTURED DATA)
-# ---------------------------------------------------
 
 def extract_hourly_data(result_raw):
     try:
         for item in result_raw:
             if hasattr(item, "text"):
-                text = item.text
-
-                # Convert string → dict
-                data_dict = json.loads(text)
+                data_dict = json.loads(item.text)
 
                 rows = []
                 for timestamp, value in data_dict.items():
@@ -98,9 +94,10 @@ def extract_hourly_data(result_raw):
         logger.error(f"[EXTRACT_ERROR] {str(e)}")
 
     return []
-    
+
+
 # ---------------------------------------------------
-# 🔥 MCP CLIENT INITIALIZATION (ASYNC + RETURN)
+# 🔥 MCP CLIENT
 # ---------------------------------------------------
 async def start_mcp_client():
     transport = StdioTransport(
@@ -111,8 +108,7 @@ async def start_mcp_client():
     mcp_client = Client(transport)
     await mcp_client.__aenter__()
 
-    logger.info("[MCP] Server started and ready ✅")
-
+    logger.info("[MCP] Server started ✅")
     return mcp_client
 
 
@@ -121,21 +117,15 @@ async def start_mcp_client():
 # ---------------------------------------------------
 def evaluate_step(query, step, result_text, tool_outputs):
 
-    tool_name = step.get("tool")
-
-    if tool_name == "get_adjusted_forecast_tool":
-        return {"action": "stop"}
-
     if "adjusted_total_kwh" in result_text:
         return {"action": "stop"}
 
     response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=200,
-        messages=[
-            {
-                "role": "user",
-                "content": f"""
+        messages=[{
+            "role": "user",
+            "content": f"""
 User query:
 {query}
 
@@ -147,14 +137,8 @@ Tool result:
 
 Return STRICT JSON:
 {{"action": "continue" | "stop" | "replan"}}
-
-Rules:
-- stop if enough info
-- continue if more tools needed
-- replan if wrong tool
 """
-            }
-        ]
+        }]
     )
 
     text = ""
@@ -169,7 +153,7 @@ Rules:
 
 
 # ---------------------------------------------------
-# 🔥 CORE AGENT LOOP (ASYNC)
+# 🔥 CORE AGENT LOOP (ASYNC)- This is not being consumed in case of LLM token level output/response streaming
 # ---------------------------------------------------
 async def run_agent_async(query, mcp_client):
 
@@ -312,3 +296,154 @@ Generate the final answer using STRICT FORMAT.
                 "data": tool_outputs
             }
     #return final_text
+
+
+# ---------------------------------------------------
+# 🔥 STREAMING AGENT
+# ---------------------------------------------------
+async def run_agent_stream(query, mcp_client):
+
+    memory.add("user", query)
+
+    tool_outputs = {}
+
+    # -------------------------------
+    # PLAN + EXECUTION
+    # -------------------------------
+    plan = parse_plan(create_plan(query))
+    logger.info(f"[INITIAL PLAN] {plan}")
+
+    for step in plan:
+
+        tool_name = step.get("tool")
+        tool_input = step.get("args", {})
+
+        # DATE NORMALIZATION
+        if "date" in tool_input:
+            today = datetime.today()
+            if tool_input["date"] == "tomorrow":
+                tool_input["date"] = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+        logger.info(f"[EXEC] {tool_name} | input={tool_input}")
+
+        result = await mcp_client.call_tool(
+            tool_name,
+            sanitize_args(tool_name, tool_input)
+        )
+
+        result_raw = result.content
+        result_text = "".join(
+            item.text for item in result.content if hasattr(item, "text")
+        )
+
+        tool_outputs[tool_name] = {
+            "text": result_text,
+            "raw": result_raw,
+            "structured": extract_hourly_data(result_raw)
+        }
+
+    llm_tool_outputs = {k: v["text"] for k, v in tool_outputs.items()}
+
+    # -------------------------------
+    # 🔥 STREAM LLM (STRUCTURED PROMPT)
+    # -------------------------------
+    final_text = ""
+    last_token = None
+
+    with client.messages.stream(
+        model=MODEL_NAME,
+        max_tokens=MAX_TOKENS,
+        temperature=0,
+        system="""
+You are an energy AI analyst.
+
+STRICT RULES (MANDATORY):
+- All data is for Spain only
+- Never mention any other location
+- Be precise and structured
+""",
+        messages=[{
+            "role": "user",
+            "content": f"""
+User query:
+{query}
+
+Executed plan:
+{plan}
+
+Tool outputs:
+{llm_tool_outputs}
+
+-----------------------------------
+
+Generate the final answer using STRICT FORMAT.
+Always add on new line character after headings and bullet points.
+For example, use: ## Summary\\n instead of ## Summary so that the frontend can stream and render in real-time.
+
+## Summary
+- Provide a concise analytical summary
+
+## Key Insights
+- Provide EXACTLY 3 to 5 bullet points
+
+## Data Analysis
+- Explain patterns
+
+## Conclusion
+- Provide final interpretation
+"""
+        }]
+    ) as stream:
+
+        for event in stream:
+
+            logger.info(f"[RAW_EVENT] {event.type}")
+
+            if event.type == "content_block_delta":
+                if hasattr(event.delta, "text") and event.delta.text:
+
+                    token = event.delta.text
+
+                    logger.info(f"[STREAM_TOKEN] {token}")
+
+                    final_text += token
+                    yield token
+
+        # for event in stream:
+
+        #     logger.info(f"[RAW_EVENT] {event.type}")
+
+        #     token = None
+
+        #     # Primary
+        #     if hasattr(event, "delta") and hasattr(event.delta, "text"):
+        #         token = event.delta.text
+
+        #     # Fallback
+        #     elif hasattr(event, "text") and event.type == "text":
+        #         token = event.text
+
+        #     # 🔥 Deduplicate
+        #     if token and token != last_token:
+        #         last_token = token
+
+        #         logger.info(f"[STREAM_TOKEN] {token}")
+        #         final_text += token
+        #         yield token
+
+    # -------------------------------
+    # FINALIZE
+    # -------------------------------
+    final_text = add_system_context(final_text, query)
+    memory.add("assistant", final_text)
+
+    yield "[END]"
+
+    structured = tool_outputs.get(
+        "get_energy_forecast_tool", {}
+    ).get("structured", [])
+
+    yield json.dumps({
+        "type": "meta",
+        "structured": structured
+    })
