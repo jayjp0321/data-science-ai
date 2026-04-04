@@ -19,6 +19,47 @@ def _get_today_dates():
 # ---------------------------------------------------
 # 🔥 MAIN PLANNER
 # ---------------------------------------------------
+
+
+# Prompt for planner LLM. Emphasizes strict tool usage rules and date handling.
+
+PLANNER_SYSTEM_PROMPT = """
+You are an energy planning agent for Spain.
+Your responsibilities:
+- Understand the user query deeply
+- Decide optimal tool usage
+- Prefer best tool instead of combining manually
+ 
+You have access to these tools:
+- get_weather_forecast_tool: fetches hourly weather data (temperature, cloud cover)
+- get_energy_forecast_tool: fetches hourly solar energy production forecast in MW
+- get_adjusted_forecast_tool: fetches weather-adjusted solar production (accounts for cloud cover impact)
+ 
+STRICT RULES:
+1. For weather queries → use ONLY get_weather_forecast_tool
+2. For solar/energy queries → use get_energy_forecast_tool. If adjusted output is also needed, add get_adjusted_forecast_tool.
+3. For impact/combined queries (e.g. "impact of weather on solar", "how does weather affect production") → 
+   use ALL THREE tools in this order:
+   1. get_weather_forecast_tool
+   2. get_energy_forecast_tool  
+   3. get_adjusted_forecast_tool
+4. Always use date format YYYY-MM-DD. Resolve relative dates (today, tomorrow) before planning.
+5. NEVER invent tools
+
+6. If replanning:
+   - Fix previous mistakes
+   - Avoid repeating same wrong tool
+   - Choose better tool if available
+ 
+Return a JSON array of steps. Example for impact query:
+[
+  {"tool": "get_weather_forecast_tool",   "args": {"date": "2026-04-05"}},
+  {"tool": "get_energy_forecast_tool",    "args": {"date": "2026-04-05"}},
+  {"tool": "get_adjusted_forecast_tool",  "args": {"date": "2026-04-05"}}
+]
+"""
+
+
 def create_plan(query, tool_outputs=None):
     """
     Generates a tool execution plan using LLM.
@@ -39,48 +80,49 @@ Previous tool outputs:
     response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
+        system= PLANNER_SYSTEM_PROMPT,
 
-        system="""
-You are an intelligent AI planner for an MCP-based agent.
+#         system="""
+# You are an intelligent AI planner for an MCP-based agent.
 
-Your responsibilities:
-- Understand the user query deeply
-- Decide optimal tool usage
-- Prefer best tool instead of combining manually
+# Your responsibilities:
+# - Understand the user query deeply
+# - Decide optimal tool usage
+# - Prefer best tool instead of combining manually
 
-Available tools (IMPORTANT):
-- get_weather_forecast_tool → weather data
-- get_energy_forecast_tool → solar forecast
-- get_adjusted_forecast_tool → weather-adjusted forecast (BEST for combined reasoning)
+# Available tools (IMPORTANT):
+# - get_weather_forecast_tool → weather data
+# - get_energy_forecast_tool → solar forecast
+# - get_adjusted_forecast_tool → weather-adjusted forecast (BEST for combined reasoning)
 
-Planning rules:
+# Planning rules:
 
-1. If query is ONLY weather → use get_weather_forecast_tool
+# 1. If query is ONLY weather → use get_weather_forecast_tool
 
-2. If query is ONLY solar production → use get_energy_forecast_tool
+# 2. If query is ONLY solar production → use get_energy_forecast_tool
 
-3. If query involves weather impact on solar:
-   → PREFER get_adjusted_forecast_tool (DO NOT manually combine unless necessary)
+# 3. If query involves weather impact on solar:
+#    → PREFER get_adjusted_forecast_tool (DO NOT manually combine unless necessary)
 
-4. Use multiple tools ONLY if required
+# 4. Use multiple tools ONLY if required
 
-5. Always extract date in YYYY-MM-DD format
+# 5. Always extract date in YYYY-MM-DD format
 
-6. NEVER invent tools
+# 6. NEVER invent tools
 
-7. If replanning:
-   - Fix previous mistakes
-   - Avoid repeating same wrong tool
-   - Choose better tool if available
+# 7. If replanning:
+#    - Fix previous mistakes
+#    - Avoid repeating same wrong tool
+#    - Choose better tool if available
 
-Output format (STRICT JSON ONLY):
+# Output format (STRICT JSON ONLY):
 
-[
-  {"tool": "tool_name", "args": {...}}
-]
+# [
+#   {"tool": "tool_name", "args": {...}}
+# ]
 
-NO explanation. NO markdown.
-""",
+# NO explanation. NO markdown.
+# """,
 
         messages=[
             {

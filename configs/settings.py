@@ -29,3 +29,6 @@ DEFAULT_LOCATION = "Spain"
 # -----------------------
 MODEL_PATH = "models/energy/solar_forecast/ucm_model_2020_2023.pkl"
 WEIGHTS_PATH = "models/energy/solar_forecast/hourly_weights.pkl"
+
+MAX_ANALYTICS_MESSAGES = 3  # keep analytics only for last N assistant messages
+RENDER_INTERVAL = 0.1  # Render Tokens to UI every 0.1 seconds during streaming

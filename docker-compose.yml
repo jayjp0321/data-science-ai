@@ -1,3 +1,41 @@
+# services:
+#   backend:
+#     build:
+#       context: .
+#       dockerfile: apps/api/Dockerfile
+#     container_name: energy_api
+#     ports:
+#       - "8000:8000"        # ✅ KEEP THIS
+#     volumes:
+#       - .:/app
+#     environment:
+#       - PYTHONUNBUFFERED=1
+
+#     # 🔥 ADD THIS
+#     healthcheck:
+#       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+#       interval: 30s
+#       timeout: 5s
+#       retries: 3
+
+#   ui:
+#     build:
+#       context: .
+#       dockerfile: apps/ui/Dockerfile
+#     container_name: energy_ui
+#     ports:
+#       - "8501:8501"        # ✅ KEEP THIS
+#     volumes:
+#       - .:/app
+
+#     # 🔥 REPLACE depends_on
+#     depends_on:
+#       backend:
+#         condition: service_healthy
+
+
+version: "3.9"
+
 services:
   backend:
     build:
@@ -5,13 +43,14 @@ services:
       dockerfile: apps/api/Dockerfile
     container_name: energy_api
     ports:
-      - "8000:8000"        # ✅ KEEP THIS
+      - "8000:8000"
     volumes:
       - .:/app
     environment:
       - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    restart: unless-stopped
 
-    # 🔥 ADD THIS
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
@@ -24,11 +63,14 @@ services:
       dockerfile: apps/ui/Dockerfile
     container_name: energy_ui
     ports:
-      - "8501:8501"        # ✅ KEEP THIS
+      - "8501:8501"
     volumes:
       - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+    restart: unless-stopped
 
-    # 🔥 REPLACE depends_on
     depends_on:
       backend:
         condition: service_healthy
