@@ -97,7 +97,10 @@ This project implements a **multi-stage AI agent system** that can:
 
 # 🧩 System Components
 
-## 1. Planner (`agent/planner.py`)
+## Agent Layer
+   Core Orchestration layer coordinates Planner + Tools + LLM
+
+## 1. Planner (LLM Planning Engine)
 
 **Responsibility:**
 - Understand user query
@@ -129,12 +132,16 @@ This project implements a **multi-stage AI agent system** that can:
         - Registers tools
         - Executes business logic
 
-## Argument Sanitization Layer (NEW)
-LLM may generate invalid arguments based on the user query- since this system is designed on Spain data
-User will get the prompt even if user enquire abotu the other location. That why before calling this layer
-sanitize the input to the tools.
+## 3. Conversation Memory (Basic)
+   - Stores User + Assistant messages (To render UI at session level for every user query)
+   - Not used in reasoning
+   - Not used in planner
+   - Not used in prompts
 
-## 3. Tools (MCP)
+## 4. Self-Correcting System
+Wrong plan → evaluator detects → replan → continue
+
+## 5. Tools (MCP)
 🌤️ get_weather_forecast_tool
         -Fetches weather data from Open-Meteo API
 ⚡ get_energy_forecast_tool
@@ -148,15 +155,44 @@ sanitize the input to the tools.
         . Returns final production
 
 
-## 4.  Final Reasoning (LLM)
+## 6. Final Reasoning (LLM)
 
 After execution completes:
 
     -Interprets tool outputs
     -Generates human-readable explanation
     -Applies domain reasoning
+
+## 7. ML-Model/s
+
+Machine learning pre-build model(.pkl file) to be used for grid solar production forecast for Spain.
+
+## 8. Streaming communication layer (New)
+   - Potocol: SSE( Server-sent events)
+   - LLM Level streaming ( Backend --> Streamlit UI)
+   - Behavior
+      . Token streaming
+      . Event framing (data:)
+      . Meta payload for analytics
+
+## 9. Logging System
+- Backend:
+   . Root logger
+   . Rotating file handler (api.log)
+   . Propagation control
+- UI:
+   . File + console logging (app.log)
+
+## 10. Dockerized Setup. 
+
+      +------------------------------------------+
+      | Container | Contents                     |
+      | --------- | ---------------------------- |
+      | UI        | Streamlit app                |
+      | Backend   | FastAPI + Agent + MCP client |
+      +------------------------------------------+
     
-## 5. 🧠 Key Design Principles
+##  🧠 Key Design Principles
     +----------------------------------------+
     | Component        | Responsibility      |
     ------------------------------------------
@@ -182,10 +218,7 @@ After execution completes:
    - Rotating logs
    - No duplicate logs
 
-## 6. Self-Correcting System
-Wrong plan → evaluator detects → replan → continue
-
-## 7. 🔥 Key Features
+## 🔥 Key Features
 ✅ MCP-native tool execution
 ✅ Multi-tool reasoning
 ✅ Weather-aware solar forecasting
@@ -198,7 +231,8 @@ Wrong plan → evaluator detects → replan → continue
 ✅ Production-ready architecture
 
 
-## 9. API Architecture Flow
+##  API Architecture Flow
+
 ```mermaid
 flowchart TD
 
@@ -226,7 +260,7 @@ flowchart TD
 ```
 
 
-## 8. 🧠 Future Roadmap
+## 🧠 Future Roadmap
 
    🔹 1. Tool Memory Layer:
          - Cache tool outputs
@@ -250,13 +284,62 @@ flowchart TD
          - Context-aware follow-ups
          - Cross-query intelligence
 
+## 📁 Project Structure
 
-## Note
-This project may contain some extra files as it is the outcome of a transition from an MCP implementation in Python to using readily available FastMCP libraries. For better understanding of the files included in the project scope, please refer to the imports used in the code. Some of them are mentioned below:
-- mcp_core: This folder is not used in the current project scope.
-- tools: This folder has not been used in the project so far, but it has been retained for future scope.
-- services: This folder contains an unused file named data_loader.py, which can be utilized for future enhancements.
-- models: This folder contains multiple subfolders named after different model algorithms tested for solar energy forecasting (Spain). However, within the project scope, only the UnobservedComponentModel has been used, located inside models/energy/solar_forecast. The objective of this project is to develop an agent prototype that integrates MCP with the energy forecast model.
-- test: Completely unused folder as of now.
-- data: Reserved for future scope.
+            DATA-SCIENCE-AI/
+            │
+            ├── agent/
+            │   ├── agent.py
+            │   ├── memory.py
+            │   └── planner.py
+            │
+            ├── apps/
+            │   ├── api/
+            │   │   └── main.py
+            │   └── ui/
+            │       └── app.py
+            │
+            ├── mcp_core/
+            ├── mcp_v2/
+            ├── services/
+            ├── models/
+            │
+            ├── docker-compose.yml
+            ├── requirements.txt
+            └── README.md
+
+## 🔑 Final Summary
+
+Your current system consists of:
+
+   - Frontend layer → Streamlit UI + analytics
+   - API layer → FastAPI + SSE streaming
+   - Agent layer → planning + execution
+   - Tool layer (MCP) → externalized computation
+   - Service layer → domain logic
+   - Model layer → ML forecasting
+   - Data pipeline → structured outputs for UI
+
+📌 Note
+
+   ⚠️ This project is designed as a tool-augmented AI agent system, not a traditional chatbot.
+
+   - The system relies on LLM-based planning + external tool execution (via MCP) rather than static responses.
+   - All analytics (charts, tables, metrics) are generated from structured tool outputs, not directly from the LLM.
+   - The UI maintains session-level state for visualization, but the backend agent currently operates independently per request.
+   - Streaming responses are implemented using Server-Sent Events (SSE) for real-time token delivery.
+   - The architecture follows a layered design:
+      . Agent (reasoning)
+      . MCP (tool execution)
+      . Services (business logic)
+      . Models (ML inference)
+
+
+   ⚠️ This project may contain some extra files as it is the outcome of a transition from an MCP implementation in Python to using readily available FastMCP libraries. For better understanding of the files included in the project scope, please refer to the imports used in the code. Some of them are mentioned below:
+   - mcp_core: This folder is not used in the current project scope.
+   - tools: This folder has not been used in the project so far, but it has been retained for future scope.
+   - services: This folder contains an unused file named data_loader.py, which can be utilized for future enhancements.
+   - models: This folder contains multiple subfolders named after different model algorithms tested for solar energy forecasting (Spain). However, within the project scope, only the UnobservedComponentModel has been used, located inside models/energy/solar_forecast. The objective of this project is to develop an agent prototype that integrates MCP with the energy forecast model.
+   - test: Completely unused folder as of now.
+   - data: Reserved for future scope.
 
