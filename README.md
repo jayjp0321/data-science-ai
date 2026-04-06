@@ -335,6 +335,29 @@ Structured outputs from tools are used for:
 - Structured analytics pipeline  
 
 ---
+## 🧠 Future Roadmap
+
+   🔹 1. Tool Memory Layer:
+         - Cache tool outputs
+         - Reuse across queries
+   🔹 2. Memory-Aware Planning:
+         - Planner agent is aware of previous tool call/s output uses for the next queries
+           during the session context/browser context
+         - Minimize tool call
+         - No MCP Call (Faster response)
+         - Cost: Fewer LLM + Toll Token
+         Current Behaviour:
+            User: solar forecast tomorrow
+               → tool called ✅
+
+            User: what is peak production?
+               → tool called AGAIN ❌ (wasteful)
+   🔹 3. Smart Context Injection:
+         - Summarized memory
+         - Reduced token usage
+   🔹 4. Multi-Turn Reasoning
+         - Context-aware follow-ups
+         - Cross-query intelligence
 
 # 📁 Project Structure
 
@@ -358,6 +381,7 @@ DATA-SCIENCE-AI/
 
 ---
 
+
 # 📌 Important Note
 
 > ⚠️ This is a **tool-augmented AI system**, not a traditional chatbot.
@@ -380,3 +404,5 @@ This system combines:
 - 📊 Real-time analytics  
 
 👉 Result: **A production-grade AI energy analysis agent**
+
+
