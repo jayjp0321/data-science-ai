@@ -1,345 +1,382 @@
-# data-science-ai
 # ⚡ MCP-Based Energy AI Agent
 
-An intelligent energy analysis agent backed by ML-Model, built using **Model Context Protocol (MCP)** :
-This release introduces a production-grade MCP-native hybrid agent architecture with:
+An intelligent **energy analysis AI agent** powered by **ML models + Model Context Protocol (MCP)**.
 
-✔ Planner-driven execution
-✔ MCP-based tool orchestration
-✔ Evaluator loop (self-correction)
-✔ Argument sanitization layer
-✔ Deterministic tool control
-✔ Location constraint handling (Spain-only system)
-✔ Dockerized deployment
+This system implements a **production-grade, tool-augmented LLM architecture** with:
+
+- ✅ Planner-driven execution  
+- ✅ MCP-based tool orchestration  
+- ✅ Evaluator loop (self-correction)  
+- ✅ Deterministic tool control  
+- ✅ Argument sanitization  
+- ✅ Spain-specific calibration  
+- ✅ Dockerized multi-container deployment  
 
 ---
 
 # 🚀 Overview
 
-This project implements a **multi-stage AI agent system** that can:
+This project implements a **multi-stage AI agent system** capable of:
 
-- Understands natural language queries
-- Plans execution using an LLM-based planner
-- Calls external tools (weather, energy, adjusted forecasts)
-- Streams structured + analytical responses
-- Visualizes insights in real-time
-- Forecast weather (Spain)
-- Forecast solar energy production 
-- Analyze weather impact on solar output
-- Combine multiple data sources intelligently
-- Dynamically decide which tools to use
-- Self-correct wrong decisions
-- This system has been calibarated for spain
+- Understanding natural language queries  
+- Planning execution using an LLM-based planner  
+- Calling external tools (weather, energy, adjusted forecasts)  
+- Streaming structured responses in real-time  
+- Rendering analytics (charts, tables, metrics)  
+- Forecasting solar energy production (Spain)  
+- Analyzing weather impact on solar output  
 
 ---
 
-## Multi Container Dockerization (NEW)
-- The agent is fully containerized.
-- Two containers used:
-   1. UI Container
-   2. Backend Container
+# 🐳 Multi-Container Architecture
 
-# 🧠 Docker Container level Architecture
+The system is deployed using **two Docker containers**:
 
-+---------------------------+        +--------------------------------------+
-|        UI CONTAINER       |        |        BACKEND CONTAINER             |
-|---------------------------|        |--------------------------------------|
-| Streamlit (app.py)        |        | FastAPI (main.py)                    |
-|                           |        |                                      |
-| - Chat UI                 | <----> | - API Endpoints                      |
-| - Streaming Renderer      |  HTTP  | - Agent Orchestration                |
-| - Charts & Analytics      |        | - MCP Client                         |
-|                           |        |                                      |
-+---------------------------+        |  ┌──────────────────────────────┐    |
-                                     |  │         AGENT LAYER          │    |
-                                     |  │ (agent/ - planner, memory)   │    |
-                                     |  └──────────────┬───────────────┘    |
-                                     |                 │                    |
-                                     |  ┌──────────────▼───────────────┐    |
-                                     |  │       SERVICE LAYER          │    |
-                                     |  │ (services/)                  │    |
-                                     |  │ - forecast_service           │    |
-                                     |  │ - weather_service            │    |
-                                     |  │ - solar_adjustment_service   │    |
-                                     |  └──────────────┬───────────────┘    |
-                                     |                 │                    |
-                                     |  ┌──────────────▼───────────────┐    |
-                                     |  │        MODEL LAYER           │    |
-                                     |  │ (models/)                    │    |
-                                     |  │ - baseline                   │    |
-                                     |  │ - energy                     │    |
-                                     |  │ - nhits                      │    |
-                                     |  │ - tcn                        │    |
-                                     |  └──────────────┬───────────────┘    |
-                                     |                 │                    |
-                                     |  ┌──────────────▼───────────────┐    |
-                                     |  │        DATA LAYER            │    |
-                                     |  │ (data/, loaders)             │    |
-                                     |  └──────────────────────────────┘    |
-                                     |                                      |
-                                     +------------------+-------------------+
-                                                        |
-                                                        | STDIO (MCP)
-                                                        ▼
-                                           +-----------------------------+
-                                           |      MCP SERVER             |
-                                           |-----------------------------|
-                                           | mcp_v2.server               |
-                                           |                             |
-                                           | Tools:                      |
-                                           | - Weather Forecast          |
-                                           | - Energy Forecast           |
-                                           | - Adjusted Forecast         |
-                                           +-----------------------------+
-
+- **UI Container (Streamlit)**
+- **Backend Container (FastAPI + Agent + MCP Client)**
 
 ---
 
+## 🧠 System Architecture Overview
+High-level system design showing components and communication patterns.
+
+<High-level architecture diagram>
+
+```mermaid
+%%{init: {'theme':'default'}}%%
+flowchart LR
+
+    subgraph UI_Container
+        UI[Streamlit UI]
+    end
+
+    subgraph Backend_Container
+
+        API[FastAPI Backend]
+
+        API -->|Function Call| Agent[Agent Core]
+
+        Agent --> Planner[Planner]
+        Agent --> Evaluator[Evaluator]
+
+        Agent --> MCPClient[MCP Client]
+
+        Agent -->|SSE Stream| StreamHandler[Streaming Handler]
+
+        MCPClient -->|STDIO| MCPServer[MCP Server]
+
+        MCPServer --> Services[Service Layer]
+        Services --> Models[Model Layer]
+        Models --> Data[Data Layer]
+
+    end
+
+    subgraph External_LLM
+        LLM[LLM API]
+    end
+
+    UI -->|HTTP| API
+    StreamHandler -->|SSE| UI
+
+    Agent -->|HTTP API| LLM
+```
+
+## 🔁 Request Flow (Sequence Diagram)
+Step-by-step execution from user query to response streaming.
+
+<Sequence diagram>
+
+```mermaid
+%%{init: {'theme':'default'}}%%
+sequenceDiagram
+
+    participant UI as Streamlit UI
+    participant API as FastAPI Backend
+    participant Agent as Agent Core
+    participant MCP as MCP Server
+    participant LLM as LLM API
+
+    UI->>API: HTTP POST /chat/stream
+    API->>Agent: run_agent_stream() (function call)
+
+    Agent->>MCP: call_tool() via STDIO
+    MCP-->>Agent: Tool Result (STDOUT)
+
+    Agent->>LLM: HTTP API Call
+    LLM-->>Agent: Streaming Tokens (HTTP stream)
+
+    Agent-->>API: Yield tokens
+
+    API-->>UI: SSE stream (token by token)
+
+    UI->>UI: Render response + charts
+```
+## 🐳 Deployment Architecture
+Container-level deployment and runtime boundaries.
+
+<Deployment diagram>
+
+```mermaid
+%%{init: {'theme':'default'}}%%
+flowchart LR
+
+    subgraph Docker Network
+
+        subgraph UI_Container
+            UI[Streamlit App - Port 8501]
+        end
+
+        subgraph Backend_Container
+
+            API[FastAPI Server - Port 8000]
+
+            Agent[Agent Core]
+
+            MCPServer[MCP Server Process]
+
+            API --> Agent
+            Agent -->|STDIO| MCPServer
+
+        end
+
+    end
+
+    subgraph External_Services
+        LLM[LLM Provider API]
+    end
+
+    UI -->|HTTP| API
+    API -->|SSE| UI
+
+    Agent -->|HTTP| LLM
+```
 # 🧩 System Components
 
-## Agent Layer
-   Core Orchestration layer coordinates Planner + Tools + LLM
+## 🧠 Agent Layer
 
-## 1. Planner (LLM Planning Engine)
+Core orchestration layer responsible for:
 
-**Responsibility:**
-- Understand user query
-- Select optimal tools
-- Generate execution plan
+- Planning execution  
+- Calling tools via MCP  
+- Evaluating results  
+- Generating final responses  
 
-## 2. MCP Flow/Layer with Core Achitectural Flow
+---
 
-                                          User Query
-                                             ↓
-                                          Agent (Planner + Executor + Evaluator/Self Correction)
-                                             ↓
-                                          MCP Client (Consumes Tool)
-                                             ↓
-                                          MCP Server (Exposes Tool)
-                                             ↓
-                                          Service Layer 
-                                             ↓
-                                          Model Layer (Pre-built ML Models)
-                                             ↓
-                                          Data Layer
-                                             ↓
-                                          Response → Agent → UI(Streamlit UI)
+## 📋 Planner (LLM)
 
-    . MCP Client
-        - Sends tool execution request
-        - Receives structured response
-    . MCP Server (mcp_v2/server.py)
-        - Registers tools
-        - Executes business logic
+**Responsibilities:**
 
-## 3. Conversation Memory (Basic)
-   - Stores User + Assistant messages (To render UI at session level for every user query)
-   - Not used in reasoning
-   - Not used in planner
-   - Not used in prompts
+- Interpret user query  
+- Select appropriate tools  
+- Generate execution plan  
 
-## 4. Self-Correcting System
-Wrong plan → evaluator detects → replan → continue
+---
 
-## 5. Tools (MCP)
-🌤️ get_weather_forecast_tool
-        -Fetches weather data from Open-Meteo API
-⚡ get_energy_forecast_tool
-        -Uses ML model (UnobservedComponents)
-        -Predicts solar production
-🔥 get_adjusted_forecast_tool
-        . Combines:
-            -weather
-            -solar forecast
-        . Applies adjustment logic
-        . Returns final production
+## 🔌 MCP Layer
 
+### MCP Client
+- Sends tool execution requests  
+- Receives structured outputs  
 
-## 6. Final Reasoning (LLM)
+### MCP Server
+- Hosts tools  
+- Executes domain logic  
+- Returns structured responses  
 
-After execution completes:
+---
 
-    -Interprets tool outputs
-    -Generates human-readable explanation
-    -Applies domain reasoning
-
-## 7. ML-Model/s
-
-Machine learning pre-build model(.pkl file) to be used for grid solar production forecast for Spain.
-
-## 8. Streaming communication layer (New)
-   - Potocol: SSE( Server-sent events)
-   - LLM Level streaming ( Backend --> Streamlit UI)
-   - Behavior
-      . Token streaming
-      . Event framing (data:)
-      . Meta payload for analytics
-
-## 9. Logging System
-- Backend:
-   . Root logger
-   . Rotating file handler (api.log)
-   . Propagation control
-- UI:
-   . File + console logging (app.log)
-
-## 10. Dockerized Setup. 
-
-      +------------------------------------------+
-      | Container | Contents                     |
-      | --------- | ---------------------------- |
-      | UI        | Streamlit app                |
-      | Backend   | FastAPI + Agent + MCP client |
-      +------------------------------------------+
-    
-##  🧠 Key Design Principles
-    +----------------------------------------+
-    | Component        | Responsibility      |
-    ------------------------------------------
-    | Planner          | What to do          |
-    | MCP              | Execute tools       |
-    | Evaluator        | Control flow        |
-    | LLM              | Explain results     |
-    | Memory           | UI Memory(Session)  |
-    +----------------------------------------+
-
-## 🔑 Engineering Decisions
-✅ SSE over WebSockets
-   - Simpler infra
-   - Reliable streaming
-   - Works with HTTP stack
-✅ MCP-based Tooling
-   - Clean separation of concerns
-   - Scalable tool ecosystem
-✅ Structured Extraction
-   - Deterministic UI rendering
-   - No LLM dependency for charts
-✅ Logging Design
-   - Rotating logs
-   - No duplicate logs
-
-## 🔥 Key Features
-✅ MCP-native tool execution
-✅ Multi-tool reasoning
-✅ Weather-aware solar forecasting
-✅ Self-correcting agent loop
-✅ JSON-safe serialization
-✅ SSE Streaming (Agent Engine Level- Unidirectional LLM Streaming Tokenwise LLM-->UI)
-✅ MCP client lifecycle management
-✅ Multi container (Docker) communication
-✅ Strucured data pipeline (Tool Response) used for Charts,Tables,Metrics & CSV Export
-✅ Production-ready architecture
-
-
-##  API Architecture Flow
+## 🔁 Execution Flow
 
 ```mermaid
 flowchart TD
 
     A[User Query] --> B[Planner LLM]
-
     B --> C[Execution Loop]
 
     C --> D[MCP Client]
     D --> E[MCP Server]
-    E --> F[Tools Layer]
 
-    F --> F1[get_weather_forecast_tool]
-    F --> F2[get_energy_forecast_tool]
-    F --> F3[get_adjusted_forecast_tool]
+    E --> F[Tools]
 
-    F --> G[Tool Result]
+    F --> G[Tool Output]
 
-    G --> H[Evaluator LLM]
+    G --> H[Evaluator]
 
-    H -->|continue| C
-    H -->|replan| B
-    H -->|stop| I[Final LLM Response]
+    H -->|Continue| C
+    H -->|Replan| B
+    H -->|Stop| I[Final Response]
 
-    I --> J[User Output]
+    I --> J[User]
 ```
 
+---
 
-## 🧠 Future Roadmap
+## 🛠️ MCP Tools
 
-   🔹 1. Tool Memory Layer:
-         - Cache tool outputs
-         - Reuse across queries
-   🔹 2. Memory-Aware Planning:
-         - Planner agent is aware of previous tool call/s output uses for the next queries
-           during the session context/browser context
-         - Minimize tool call
-         - No MCP Call (Faster response)
-         - Cost: Fewer LLM + Toll Token
-         Current Behaviour:
-            User: solar forecast tomorrow
-               → tool called ✅
+### 🌤️ Weather Forecast Tool
+- Fetches weather data (Open-Meteo API)
 
-            User: what is peak production?
-               → tool called AGAIN ❌ (wasteful)
-   🔹 3. Smart Context Injection:
-         - Summarized memory
-         - Reduced token usage
-   🔹 4. Multi-Turn Reasoning
-         - Context-aware follow-ups
-         - Cross-query intelligence
+### ⚡ Energy Forecast Tool
+- Uses ML model (Unobserved Components)
+- Predicts solar production
 
-## 📁 Project Structure
+### 🔥 Adjusted Forecast Tool
+- Combines weather + energy data  
+- Applies adjustment logic  
+- Produces final output  
 
-            DATA-SCIENCE-AI/
-            │
-            ├── agent/
-            │   ├── agent.py
-            │   ├── memory.py
-            │   └── planner.py
-            │
-            ├── apps/
-            │   ├── api/
-            │   │   └── main.py
-            │   └── ui/
-            │       └── app.py
-            │
-            ├── mcp_core/
-            ├── mcp_v2/
-            ├── services/
-            ├── models/
-            │
-            ├── docker-compose.yml
-            ├── requirements.txt
-            └── README.md
+---
 
-## 🔑 Final Summary
+## 🧠 Memory (Current State)
 
-Your current system consists of:
+- Stores user + assistant messages  
+- Used for UI rendering only  
+- ❌ Not used in reasoning or planning  
 
-   - Frontend layer → Streamlit UI + analytics
-   - API layer → FastAPI + SSE streaming
-   - Agent layer → planning + execution
-   - Tool layer (MCP) → externalized computation
-   - Service layer → domain logic
-   - Model layer → ML forecasting
-   - Data pipeline → structured outputs for UI
+---
 
-📌 Note
+## 🔁 Evaluator (Self-Correction)
 
-   ⚠️ This project is designed as a tool-augmented AI agent system, not a traditional chatbot.
+- Detects incorrect plans  
+- Triggers replanning  
+- Ensures execution correctness  
 
-   - The system relies on LLM-based planning + external tool execution (via MCP) rather than static responses.
-   - All analytics (charts, tables, metrics) are generated from structured tool outputs, not directly from the LLM.
-   - The UI maintains session-level state for visualization, but the backend agent currently operates independently per request.
-   - Streaming responses are implemented using Server-Sent Events (SSE) for real-time token delivery.
-   - The architecture follows a layered design:
-      . Agent (reasoning)
-      . MCP (tool execution)
-      . Services (business logic)
-      . Models (ML inference)
+---
 
+## 🤖 ML Model Layer
 
-   ⚠️ This project may contain some extra files as it is the outcome of a transition from an MCP implementation in Python to using readily available FastMCP libraries. For better understanding of the files included in the project scope, please refer to the imports used in the code. Some of them are mentioned below:
-   - mcp_core: This folder is not used in the current project scope.
-   - tools: This folder has not been used in the project so far, but it has been retained for future scope.
-   - services: This folder contains an unused file named data_loader.py, which can be utilized for future enhancements.
-   - models: This folder contains multiple subfolders named after different model algorithms tested for solar energy forecasting (Spain). However, within the project scope, only the UnobservedComponentModel has been used, located inside models/energy/solar_forecast. The objective of this project is to develop an agent prototype that integrates MCP with the energy forecast model.
-   - test: Completely unused folder as of now.
-   - data: Reserved for future scope.
+- Pre-trained models (.pkl)
+- Solar forecasting (Spain)
 
+**Currently used:**
+- Unobserved Components Model  
+
+---
+
+## ⚙️ Service Layer
+
+- Forecast service  
+- Weather service  
+- Solar adjustment logic  
+
+---
+
+## 📊 Data Pipeline
+
+Structured outputs from tools are used for:
+
+- Charts  
+- Tables  
+- Metrics  
+- CSV export  
+
+---
+
+## 🔄 Streaming Layer
+
+**Protocol:** Server-Sent Events (SSE)
+
+- Token-level streaming  
+- Real-time UI updates  
+- Metadata for analytics  
+
+---
+
+## 🧾 Logging
+
+### Backend
+- Rotating logs (`api.log`)  
+- Structured logging  
+- No duplication  
+
+### UI
+- File + console logs (`app.log`)  
+
+---
+
+## 🐳 Docker Setup
+
+| Container | Description |
+|----------|------------|
+| UI       | Streamlit frontend |
+| Backend  | FastAPI + Agent + MCP Client |
+
+---
+
+# 🔑 Engineering Decisions
+
+### ✅ SSE over WebSockets
+- Simpler infrastructure  
+- Reliable for LLM streaming  
+
+### ✅ MCP-Based Tooling
+- Clean separation of concerns  
+- Scalable tool ecosystem  
+
+### ✅ Structured Extraction
+- Deterministic UI rendering  
+- No LLM dependency for analytics  
+
+### ✅ Logging Design
+- Rotating logs  
+- Clean observability  
+
+---
+
+# 🔥 Key Features
+
+- MCP-native tool execution  
+- Multi-tool reasoning  
+- Weather-aware solar forecasting  
+- Self-correcting execution loop  
+- SSE streaming (real-time responses)  
+- Multi-container Docker architecture  
+- Structured analytics pipeline  
+
+---
+
+# 📁 Project Structure
+
+```text
+DATA-SCIENCE-AI/
+│
+├── agent/
+├── apps/
+│   ├── api/
+│   └── ui/
+├── mcp_core/
+├── mcp_v2/
+├── services/
+├── models/
+├── data/
+│
+├── docker-compose.yml
+├── requirements.txt
+└── README.md
+```
+
+---
+
+# 📌 Important Note
+
+> ⚠️ This is a **tool-augmented AI system**, not a traditional chatbot.
+
+- Uses **LLM + MCP tools** instead of static responses  
+- Analytics are generated from **structured tool outputs**  
+- UI maintains session state for visualization  
+- Backend operates **independently per request**  
+
+---
+
+# 🏁 Summary
+
+This system combines:
+
+- 🧠 LLM reasoning  
+- 🔌 MCP tool execution  
+- ⚙️ Service orchestration  
+- 🤖 ML forecasting  
+- 📊 Real-time analytics  
+
+👉 Result: **A production-grade AI energy analysis agent**

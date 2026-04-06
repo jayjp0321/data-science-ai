@@ -78,3 +78,4 @@ Thumbs.db
 *.db
 *.pkl
 api.log
+echo README_OLD.md >> .gitignore
