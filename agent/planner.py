@@ -80,50 +80,35 @@ Previous tool outputs:
     response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=MAX_TOKENS,
-        system= PLANNER_SYSTEM_PROMPT,
-
-#         system="""
-# You are an intelligent AI planner for an MCP-based agent.
-
-# Your responsibilities:
-# - Understand the user query deeply
-# - Decide optimal tool usage
-# - Prefer best tool instead of combining manually
-
-# Available tools (IMPORTANT):
-# - get_weather_forecast_tool → weather data
-# - get_energy_forecast_tool → solar forecast
-# - get_adjusted_forecast_tool → weather-adjusted forecast (BEST for combined reasoning)
-
-# Planning rules:
-
-# 1. If query is ONLY weather → use get_weather_forecast_tool
-
-# 2. If query is ONLY solar production → use get_energy_forecast_tool
-
-# 3. If query involves weather impact on solar:
-#    → PREFER get_adjusted_forecast_tool (DO NOT manually combine unless necessary)
-
-# 4. Use multiple tools ONLY if required
-
-# 5. Always extract date in YYYY-MM-DD format
-
-# 6. NEVER invent tools
-
-# 7. If replanning:
-#    - Fix previous mistakes
-#    - Avoid repeating same wrong tool
-#    - Choose better tool if available
-
-# Output format (STRICT JSON ONLY):
-
-# [
-#   {"tool": "tool_name", "args": {...}}
-# ]
-
-# NO explanation. NO markdown.
-# """,
-
+        system=PLANNER_SYSTEM_PROMPT,
+        #         system="""
+        # You are an intelligent AI planner for an MCP-based agent.
+        # Your responsibilities:
+        # - Understand the user query deeply
+        # - Decide optimal tool usage
+        # - Prefer best tool instead of combining manually
+        # Available tools (IMPORTANT):
+        # - get_weather_forecast_tool → weather data
+        # - get_energy_forecast_tool → solar forecast
+        # - get_adjusted_forecast_tool → weather-adjusted forecast (BEST for combined reasoning)
+        # Planning rules:
+        # 1. If query is ONLY weather → use get_weather_forecast_tool
+        # 2. If query is ONLY solar production → use get_energy_forecast_tool
+        # 3. If query involves weather impact on solar:
+        #    → PREFER get_adjusted_forecast_tool (DO NOT manually combine unless necessary)
+        # 4. Use multiple tools ONLY if required
+        # 5. Always extract date in YYYY-MM-DD format
+        # 6. NEVER invent tools
+        # 7. If replanning:
+        #    - Fix previous mistakes
+        #    - Avoid repeating same wrong tool
+        #    - Choose better tool if available
+        # Output format (STRICT JSON ONLY):
+        # [
+        #   {"tool": "tool_name", "args": {...}}
+        # ]
+        # NO explanation. NO markdown.
+        # """,
         messages=[
             {
                 "role": "user",
@@ -146,9 +131,9 @@ Instructions:
 - Weather API supports near-term forecast only
 
 Return ONLY JSON list.
-"""
+""",
             }
-        ]
+        ],
     )
 
     text = ""

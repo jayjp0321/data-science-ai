@@ -1,61 +1,55 @@
+# agent.py (UPDATED)
+
 import json
 import anthropic
 import logging
 
+from async_lru import alru_cache
+
 from agent.memory import ConversationMemory
 from agent.planner import create_plan, parse_plan
+from agent.context_resolver import ContextResolver
+from agent.memory import StructuredMemory
 
-from configs.settings import (
-    ANTHROPIC_API_KEY,
-    MODEL_NAME,
-    MAX_TOKENS,
-    MEMORY_WINDOW
-)
+from configs.settings import ANTHROPIC_API_KEY, MODEL_NAME, MAX_TOKENS, MEMORY_WINDOW
 
 from fastmcp.client import Client
 from fastmcp.client.transports import StdioTransport
 from datetime import datetime, timedelta
 
 
-# ---------------------------------------------------
-# 🔥 LOGGING (ROOT HANDLED)
-# ---------------------------------------------------
 logger = logging.getLogger(__name__)
 logger.propagate = True
 
+MCP_CLIENT = None
 
 # ---------------------------------------------------
-# 🔥 GLOBAL CLIENTS
+# 🔥 GLOBAL STATE
 # ---------------------------------------------------
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 memory = ConversationMemory(MEMORY_WINDOW)
+structured_mem = StructuredMemory()
+context_resolver = ContextResolver(structured_mem)
 
 
 # ---------------------------------------------------
-# 🔥 LOCATION HANDLING
+# 🔥 HELPERS (unchanged)
 # ---------------------------------------------------
 def detect_location(query: str):
     query = query.lower()
-
     if "spain" in query:
         return "spain"
-
-    known_locations = ["india", "usa", "germany", "france", "uk"]
-    for loc in known_locations:
+    for loc in ["india", "usa", "germany", "france", "uk"]:
         if loc in query:
             return loc
-
     return None
 
 
 def add_system_context(final_text, query):
     location = detect_location(query)
-
     note = "\n\n---\n📍 **System Context**:\nThis system is calibrated for **Spain**.\n"
-
     if location and location != "spain":
         note += f"⚠️ Requested: {location.title()} → Using Spain data instead.\n"
-
     return final_text + note
 
 
@@ -83,10 +77,7 @@ def extract_hourly_data(result_raw):
                 for timestamp, value in data_dict.items():
                     hour = int(timestamp.split(" ")[1].split(":")[0])
 
-                    rows.append({
-                        "hour": hour,
-                        "production_mw": value
-                    })
+                    rows.append({"hour": hour, "production_mw": value})
 
                 return rows
 
@@ -96,20 +87,65 @@ def extract_hourly_data(result_raw):
     return []
 
 
+from datetime import datetime, timedelta
+
+
+def _normalize_date(args: dict) -> dict:
+    """
+    Ensures 'date' is always present and normalized to YYYY-MM-DD.
+    """
+
+    if not args:
+        args = {}
+
+    date = args.get("date")
+    today = datetime.today()
+
+    # ----------------------------------------
+    # 🔥 Handle missing date
+    # ----------------------------------------
+    if not date:
+        normalized = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+        return {"date": normalized}
+
+    date = str(date).lower()
+
+    # ----------------------------------------
+    # 🔥 Relative terms
+    # ----------------------------------------
+    if date == "today":
+        normalized = today.strftime("%Y-%m-%d")
+
+    elif date == "tomorrow":
+        normalized = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    elif date == "yesterday":
+        normalized = (today - timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # ----------------------------------------
+    # 🔥 Already correct format
+    # ----------------------------------------
+    else:
+        # assume it's already YYYY-MM-DD
+        normalized = date
+
+    return {"date": normalized}
+
+
 # ---------------------------------------------------
 # 🔥 MCP CLIENT
 # ---------------------------------------------------
 async def start_mcp_client():
-    transport = StdioTransport(
-        command="python",
-        args=["-m", "mcp_v2.server"]
-    )
+    global MCP_CLIENT
 
-    mcp_client = Client(transport)
-    await mcp_client.__aenter__()
+    transport = StdioTransport(command="python", args=["-m", "mcp_v2.server"])
+    MCP_CLIENT = Client(transport)
+
+    await MCP_CLIENT.__aenter__()
 
     logger.info("[MCP] Server started ✅")
-    return mcp_client
+
+    return MCP_CLIENT  # optional (can keep for compatibility)
 
 
 # ---------------------------------------------------
@@ -123,9 +159,10 @@ def evaluate_step(query, step, result_text, tool_outputs):
     response = client.messages.create(
         model=MODEL_NAME,
         max_tokens=200,
-        messages=[{
-            "role": "user",
-            "content": f"""
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
 User query:
 {query}
 
@@ -137,8 +174,9 @@ Tool result:
 
 Return STRICT JSON:
 {{"action": "continue" | "stop" | "replan"}}
-"""
-        }]
+""",
+            }
+        ],
     )
 
     text = ""
@@ -151,10 +189,45 @@ Return STRICT JSON:
     except:
         return {"action": "continue"}
 
+
+# ---------------------------------------------------
+# 🔥 TOOL CALL (CACHED)
+# ---------------------------------------------------
+
+
+@alru_cache(maxsize=32)
+async def _call_tool_cached(tool_name: str, date: str):
+
+    logger.info(f"[TOOL CALL] {tool_name} | date={date}")
+
+    result = await MCP_CLIENT.call_tool(tool_name, {"date": date})
+
+    # ----------------------------------------
+    # 🔥 HANDLE CallToolResult OBJECT
+    # ----------------------------------------
+    if hasattr(result, "content"):
+        text = str(result.content)
+    elif hasattr(result, "output"):
+        text = str(result.output)
+    else:
+        text = str(result)
+
+    return {"text": text, "structured": []}  # you can improve later
+
+
+# ---------------------------------------------------
+# 🔥 CACHE LOGGING
+# ---------------------------------------------------
+def _log_cache_event(tool, date, before, after):
+    if after.hits > before.hits:
+        logger.info(f"[CACHE HIT] {tool} | date={date}")
+    else:
+        logger.info(f"[CACHE MISS] {tool} | date={date}")
+
+
 # ---------------------------------------------------
 # 🔥 STRUCTURED EXTRACTION (TOOL-AWARE)
 # ---------------------------------------------------
-
 def extract_structured(tool_name, result_raw):
     try:
         for item in result_raw:
@@ -191,16 +264,17 @@ def extract_structured(tool_name, result_raw):
             if tool_name == "get_energy_forecast_tool":
 
                 # 🔥 Drill into nested key if present (e.g. {"hourly": {...}, "total": ...})
-                energy_source = data.get("hourly") if isinstance(data, dict) and "hourly" in data else data
+                energy_source = (
+                    data.get("hourly")
+                    if isinstance(data, dict) and "hourly" in data
+                    else data
+                )
 
                 if isinstance(energy_source, dict):
                     for k, v in energy_source.items():
                         hour = extract_hour(k)
                         if hour is not None:
-                            rows.append({
-                                "hour": hour,
-                                "production_mw": v
-                            })
+                            rows.append({"hour": hour, "production_mw": v})
 
                 elif isinstance(energy_source, list):
                     for row in energy_source:
@@ -212,20 +286,14 @@ def extract_structured(tool_name, result_raw):
                         value = row.get("production_mw") or row.get("value")
 
                         if hour is not None:
-                            rows.append({
-                                "hour": int(hour),
-                                "production_mw": value
-                            })
+                            rows.append({"hour": int(hour), "production_mw": value})
 
                 # Fallback: top-level dict with non-nested timestamps
                 elif isinstance(data, dict):
                     for k, v in data.items():
                         hour = extract_hour(k)
                         if hour is not None:
-                            rows.append({
-                                "hour": hour,
-                                "production_mw": v
-                            })
+                            rows.append({"hour": hour, "production_mw": v})
 
                 return rows
 
@@ -236,21 +304,31 @@ def extract_structured(tool_name, result_raw):
 
                 # 🔥 Drill into "hourly" key if present
                 # Shape: {"date": "...", "avg_temperature": ..., "avg_cloud_cover": ..., "hourly": {"2026-04-05 00:00:00": 17.2, ...}}
-                hourly_source = data.get("hourly") if isinstance(data, dict) and "hourly" in data else data
+                hourly_source = (
+                    data.get("hourly")
+                    if isinstance(data, dict) and "hourly" in data
+                    else data
+                )
 
-                avg_temperature = data.get("avg_temperature") if isinstance(data, dict) else None
-                avg_cloud_cover = data.get("avg_cloud_cover") if isinstance(data, dict) else None
+                avg_temperature = (
+                    data.get("avg_temperature") if isinstance(data, dict) else None
+                )
+                avg_cloud_cover = (
+                    data.get("avg_cloud_cover") if isinstance(data, dict) else None
+                )
 
                 if isinstance(hourly_source, dict):
                     for k, v in hourly_source.items():
                         hour = extract_hour(k)
                         if hour is not None:
-                            rows.append({
-                                "hour": hour,
-                                "temperature": v,
-                                "avg_temperature": avg_temperature,
-                                "avg_cloud_cover": avg_cloud_cover,
-                            })
+                            rows.append(
+                                {
+                                    "hour": hour,
+                                    "temperature": v,
+                                    "avg_temperature": avg_temperature,
+                                    "avg_cloud_cover": avg_cloud_cover,
+                                }
+                            )
 
                 elif isinstance(hourly_source, list):
                     for row in hourly_source:
@@ -267,17 +345,19 @@ def extract_structured(tool_name, result_raw):
                         if hour is None:
                             continue
 
-                        rows.append({
-                            "hour": hour,
-                            "temperature": (
-                                row.get("temperature")
-                                or row.get("value")
-                                or row.get("cloud_cover")
-                                or row.get("irradiance")
-                            ),
-                            "avg_temperature": avg_temperature,
-                            "avg_cloud_cover": avg_cloud_cover,
-                        })
+                        rows.append(
+                            {
+                                "hour": hour,
+                                "temperature": (
+                                    row.get("temperature")
+                                    or row.get("value")
+                                    or row.get("cloud_cover")
+                                    or row.get("irradiance")
+                                ),
+                                "avg_temperature": avg_temperature,
+                                "avg_cloud_cover": avg_cloud_cover,
+                            }
+                        )
 
                 return rows
 
@@ -285,51 +365,66 @@ def extract_structured(tool_name, result_raw):
             # ADJUSTED TOOL
             # -------------------------------
             elif tool_name == "get_adjusted_forecast_tool":
- 
+
                 # 🔥 Top-level summary fields — attach to every row
-                adjusted_total_kwh = data.get("adjusted_total_kwh") if isinstance(data, dict) else None
-                base_total_kwh     = data.get("base_total_kwh")     if isinstance(data, dict) else None
-                adjustment_factor  = data.get("adjustment_factor")  if isinstance(data, dict) else None
-                cloud_cover        = data.get("cloud_cover")         if isinstance(data, dict) else None
- 
+                adjusted_total_kwh = (
+                    data.get("adjusted_total_kwh") if isinstance(data, dict) else None
+                )
+                base_total_kwh = (
+                    data.get("base_total_kwh") if isinstance(data, dict) else None
+                )
+                adjustment_factor = (
+                    data.get("adjustment_factor") if isinstance(data, dict) else None
+                )
+                cloud_cover = (
+                    data.get("cloud_cover") if isinstance(data, dict) else None
+                )
+
                 # 🔥 Drill into "adjusted_hourly_kwh" (actual key from tool)
                 # Fallback to "hourly" or top-level dict
                 adjusted_source = (
-                    data.get("adjusted_hourly_kwh")
-                    or data.get("hourly")
+                    data.get("adjusted_hourly_kwh") or data.get("hourly")
                     if isinstance(data, dict)
                     else data
                 )
- 
+
                 if isinstance(adjusted_source, dict):
                     for k, v in adjusted_source.items():
                         hour = extract_hour(k)
                         if hour is not None:
-                            rows.append({
-                                "hour":               hour,
-                                "adjusted_kwh":       v,
-                                "adjusted_total_kwh": adjusted_total_kwh,
-                                "base_total_kwh":     base_total_kwh,
-                                "adjustment_factor":  adjustment_factor,
-                                "cloud_cover":        cloud_cover,
-                            })
- 
+                            rows.append(
+                                {
+                                    "hour": hour,
+                                    "adjusted_kwh": v,
+                                    "adjusted_total_kwh": adjusted_total_kwh,
+                                    "base_total_kwh": base_total_kwh,
+                                    "adjustment_factor": adjustment_factor,
+                                    "cloud_cover": cloud_cover,
+                                }
+                            )
+
                 elif isinstance(adjusted_source, list):
                     for row in adjusted_source:
                         hour = row.get("hour")
                         if isinstance(hour, str) and ":" in hour:
                             hour = int(hour.split(":")[0])
-                        value = row.get("adjusted_kwh") or row.get("adjusted_mw") or row.get("value")
+                        value = (
+                            row.get("adjusted_kwh")
+                            or row.get("adjusted_mw")
+                            or row.get("value")
+                        )
                         if hour is not None:
-                            rows.append({
-                                "hour":               int(hour),
-                                "adjusted_kwh":       value,
-                                "adjusted_total_kwh": adjusted_total_kwh,
-                                "base_total_kwh":     base_total_kwh,
-                                "adjustment_factor":  adjustment_factor,
-                                "cloud_cover":        cloud_cover,
-                            })
- 
+                            rows.append(
+                                {
+                                    "hour": int(hour),
+                                    "adjusted_kwh": value,
+                                    "adjusted_total_kwh": adjusted_total_kwh,
+                                    "base_total_kwh": base_total_kwh,
+                                    "adjustment_factor": adjustment_factor,
+                                    "cloud_cover": cloud_cover,
+                                }
+                            )
+
                 return rows
 
     except Exception as e:
@@ -390,11 +485,11 @@ async def run_agent_async(query, mcp_client):
 
         logger.info(f"[RESULT] {result_text}")
 
-        #tool_outputs[tool_name] = result_text
+        # tool_outputs[tool_name] = result_text
         tool_outputs[tool_name] = {
             "text": result_text,
             "raw": result_raw,
-            "structured": extract_hourly_data(result_raw)
+            "structured": extract_hourly_data(result_raw),
         }
         # EVALUATION
         decision = evaluate_step(query, step, result_text, tool_outputs)
@@ -423,7 +518,7 @@ async def run_agent_async(query, mcp_client):
 
         else:
             step_index += 1
-    llm_tool_outputs = { k: v["text"] for k, v in tool_outputs.items()}
+    llm_tool_outputs = {k: v["text"] for k, v in tool_outputs.items()}
     # FINAL RESPONSE
     final_response = client.messages.create(
         model=MODEL_NAME,
@@ -466,9 +561,9 @@ Generate the final answer using STRICT FORMAT.
 
 ## Conclusion
 - Provide final interpretation
-"""
+""",
             }
-        ]
+        ],
     )
 
     for block in final_response.content:
@@ -477,74 +572,100 @@ Generate the final answer using STRICT FORMAT.
 
     final_text = add_system_context(final_text, query)
     memory.add("assistant", final_text)
-    return {
-                "text": final_text,
-                "data": tool_outputs
-            }
-    #return final_text
+    return {"text": final_text, "data": tool_outputs}
+    # return final_text
+
 
 # ---------------------------------------------------
-# 🔥 STREAMING VERSION- Run Agent 
+# 🔥 CORE STREAMING AGENT (FIXED)
 # ---------------------------------------------------
 async def run_agent_stream(query, mcp_client):
 
     memory.add("user", query)
-
     tool_outputs = {}
 
-    # -------------------------------
-    # PLAN + EXECUTION
-    # -------------------------------
-    plan = parse_plan(create_plan(query))
-    logger.info(f"[INITIAL PLAN] {plan}")
+    # ---------------------------------------------------
+    # 🔥 STEP 1: RESOLVE CONTEXT (MEMORY-FIRST)
+    # ---------------------------------------------------
+    resolution = context_resolver.resolve(query)
 
-    for step in plan:
+    res_type = resolution["resolution"]
+    date = resolution["date"]
+    required_tools = resolution.get("required_tools", [])
 
-        tool_name = step.get("tool")
-        tool_input = step.get("args", {})
+    logger.info(
+        f"[RESOLVER] type={res_type} | date={date} | "
+        f"required={required_tools} | "
+        f"missing={resolution.get('missing_tools', [])}"
+    )
 
-        # DATE NORMALIZATION
-        if "date" in tool_input:
-            today = datetime.today()
-            if tool_input["date"] == "tomorrow":
-                tool_input["date"] = (
-                    today + timedelta(days=1)
-                ).strftime("%Y-%m-%d")
+    # ---------------------------------------------------
+    # 🔥 STEP 2: HANDLE RESOLUTION TYPES
+    # ---------------------------------------------------
 
-        logger.info(f"[EXEC] {tool_name} | input={tool_input}")
+    # ✅ DIRECT HIT → NO TOOL CALLS
+    if res_type == "direct":
+        logger.info("[AGENT] DIRECT → using memory only")
 
-        result = await mcp_client.call_tool(
-            tool_name,
-            sanitize_args(tool_name, tool_input)
-        )
+        tool_outputs = resolution["cached_outputs"]
 
-        result_raw = result.content
+    # ✅ PARTIAL → FETCH ONLY MISSING
+    elif res_type == "ambiguous":
+        logger.info("[AGENT] AMBIGUOUS → partial fetch")
 
-        result_text = "".join(
-            item.text for item in result.content
-            if hasattr(item, "text")
-        )
-        logger.info(f"[RAW_WEATHER_RESPONSE] {result_text[:500]}")
-        # 🔥 TOOL-AWARE STRUCTURED EXTRACTION
-        structured_data = extract_structured(tool_name, result_raw)
+        # load cached
+        tool_outputs.update(resolution["cached_outputs"])
 
-        tool_outputs[tool_name] = {
-            "text": result_text,
-            "raw": result_raw,
-            "structured": structured_data
-        }
+        # fetch missing
+        for tool_name in resolution["missing_tools"]:
+            before = _call_tool_cached.cache_info()
 
-        logger.info(f"[STRUCTURED][{tool_name}] {structured_data}")
+            output = await _call_tool_cached(tool_name, date)
 
-    # Only pass text to LLM
-    llm_tool_outputs = {
-        k: v["text"] for k, v in tool_outputs.items()
-    }
+            _log_cache_event(tool_name, date, before, _call_tool_cached.cache_info())
 
-    # -------------------------------
-    # 🔥 STREAM LLM RESPONSE
-    # -------------------------------
+            tool_outputs[tool_name] = output
+            structured_mem.store(tool_name, date, output)
+
+    # ❌ MISS → FULL PLANNER
+    else:
+        logger.info("[AGENT] MISS → planner execution")
+
+        plan = parse_plan(create_plan(query))
+        logger.info(f"[PLAN] {plan}")
+
+        for step in plan:
+            tool_name = step.get("tool")
+            tool_input = _normalize_date(step.get("args", {}))
+            date = tool_input.get("date", date)
+
+            before = _call_tool_cached.cache_info()
+
+            output = await _call_tool_cached(tool_name, date)
+
+            _log_cache_event(tool_name, date, before, _call_tool_cached.cache_info())
+
+            tool_outputs[tool_name] = output
+            structured_mem.store(tool_name, date, output)
+
+    # ---------------------------------------------------
+    # 🔥 SAFETY CHECK
+    # ---------------------------------------------------
+    if not tool_outputs:
+        logger.warning("[AGENT] No tool outputs found — forcing fallback")
+        return
+
+    # ---------------------------------------------------
+    # 🔥 STEP 3: LLM RESPONSE
+    # ---------------------------------------------------
+    llm_tool_outputs = {k: v.get("text", "") for k, v in tool_outputs.items()}
     final_text = ""
+
+    resolver_note = (
+        "Note: Answer derived fully from memory (no new tool calls)."
+        if res_type == "direct"
+        else ""
+    )
 
     with client.messages.stream(
         model=MODEL_NAME,
@@ -552,80 +673,61 @@ async def run_agent_stream(query, mcp_client):
         temperature=0,
         system="""
 You are an energy AI analyst.
-
-STRICT RULES (MANDATORY):
+STRICT RULES:
 - All data is for Spain only
-- Never mention any other location
 - Be precise and structured
 """,
-        messages=[{
-            "role": "user",
-            "content": f"""
+        messages=[
+            {
+                "role": "user",
+                "content": f"""
 User query:
 {query}
 
-Executed plan:
-{plan}
+{resolver_note}
 
 Tool outputs:
 {llm_tool_outputs}
 
 -----------------------------------
 
-Generate the final answer using STRICT FORMAT.
-Always add on new line character after headings and bullet points.
-For example, use: ## Summary\\n instead of ## Summary so that the frontend can stream and render in real-time.
-
 ## Summary
-- Provide a concise analytical summary
-
 ## Key Insights
-- Provide EXACTLY 3 to 5 bullet points
-
 ## Data Analysis
-- Explain patterns
-
 ## Conclusion
-- Provide final interpretation
-"""
-        }]
+""",
+            }
+        ],
     ) as stream:
-
         for event in stream:
-
             if event.type == "content_block_delta":
                 if hasattr(event.delta, "text") and event.delta.text:
-
                     token = event.delta.text
-
                     final_text += token
                     yield token
 
-    # -------------------------------
-    # FINALIZE
-    # -------------------------------
+    # ---------------------------------------------------
+    # 🔥 FINALIZE
+    # ---------------------------------------------------
     final_text = add_system_context(final_text, query)
-    logger.info(f"[FINAL_WEATHER_RESPONSE_ADDED_TO_MEMORY] : {final_text[:500]}")
     memory.add("assistant", final_text)
 
     yield "[END]"
 
-    # -------------------------------
-    # 🔥 META STRUCTURED OUTPUT
-    # -------------------------------
-    yield json.dumps({
-        "type": "meta",
-        "structured": {
-            "energy": tool_outputs.get(
-                "get_energy_forecast_tool", {}
-            ).get("structured", []),
+    # ---------------------------------------------------
+    # 🔥 META
+    # ---------------------------------------------------
+    info = _call_tool_cached.cache_info()
 
-            "weather": tool_outputs.get(
-                "get_weather_forecast_tool", {}
-            ).get("structured", []),
-
-            "adjusted": tool_outputs.get(
-                "get_adjusted_forecast_tool", {}
-            ).get("structured", [])
+    yield json.dumps(
+        {
+            "type": "meta",
+            "resolver": resolution,
+            "cache_stats": {
+                "hits": info.hits,
+                "misses": info.misses,
+                "size": info.currsize,
+                "maxsize": info.maxsize,
+            },
         }
-    })
+    )
