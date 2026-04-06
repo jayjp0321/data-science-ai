@@ -337,27 +337,42 @@ Structured outputs from tools are used for:
 ---
 ## 🧠 Future Roadmap
 
-   🔹 1. Tool Memory Layer:
-         - Cache tool outputs
-         - Reuse across queries
-   🔹 2. Memory-Aware Planning:
-         - Planner agent is aware of previous tool call/s output uses for the next queries
-           during the session context/browser context
-         - Minimize tool call
-         - No MCP Call (Faster response)
-         - Cost: Fewer LLM + Toll Token
-         Current Behaviour:
-            User: solar forecast tomorrow
-               → tool called ✅
+> 🚧 The following enhancements are planned to improve system intelligence, efficiency, and scalability.
 
-            User: what is peak production?
-               → tool called AGAIN ❌ (wasteful)
-   🔹 3. Smart Context Injection:
-         - Summarized memory
-         - Reduced token usage
-   🔹 4. Multi-Turn Reasoning
-         - Context-aware follow-ups
-         - Cross-query intelligence
+---
+
+### 🔹 1. Tool Memory Layer
+- Cache tool outputs  
+- Reuse results across queries  
+- Reduce redundant tool executions  
+
+---
+
+### 🔹 2. Memory-Aware Planning
+- Planner becomes aware of previous tool outputs within session context  
+- Minimizes unnecessary tool calls  
+- Enables **NO MCP Call** when data already exists  
+- Improves latency and reduces cost (fewer LLM + tool tokens)  
+
+#### 📌 Current Behavior (Inefficient)
+```text
+User: solar forecast tomorrow
+→ tool called ✅
+
+User: what is peak production?
+→ tool called AGAIN ❌ (wasteful)
+
+```
+### 🔹 3. Smart Context Injection
+- Use summarized memory instead of raw tool outputs
+- Reduce token usage
+- Improve prompt efficiency
+
+### 🔹 4. Multi-Turn Reasoning
+
+- Context-aware follow-up queries
+- Cross-query intelligence
+- Enables true conversational agent behavior
 
 # 📁 Project Structure
 
