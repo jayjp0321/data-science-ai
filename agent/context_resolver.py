@@ -33,6 +33,12 @@ DOMAIN_MAP = {
     },
 }
 
+WEIGHTS = {
+    "adjusted": 10,
+    "solar": 5,
+    "weather": 5,
+}
+
 # ---------------------------------------------------
 # 🔥 COMBINED PATTERNS
 # ---------------------------------------------------
@@ -54,7 +60,8 @@ def classify_domain(query: str) -> list[str] | None:
     for domain, cfg in DOMAIN_MAP.items():
         hits = sum(1 for kw in cfg["keywords"] if kw in q)
         if hits > 0:
-            scores[domain] = hits
+            # scores[domain] = hits
+            scores[domain] = hits * WEIGHTS.get(domain, 1)
 
     if not scores:
         logger.info("[DOMAIN] no match")
@@ -91,7 +98,7 @@ def extract_date(query: str) -> str | None:
 
 
 # ---------------------------------------------------
-# 🔥 CONTEXT RESOLVER (FULLY FIXED)
+# 🔥 CONTEXT RESOLVER (PRODUCTION READY)
 # ---------------------------------------------------
 class ContextResolver:
 
@@ -99,6 +106,8 @@ class ContextResolver:
         self.memory = memory
 
     def resolve(self, query: str) -> dict:
+
+        q = query.lower()
 
         # ---------------------------------------------------
         # 🔥 STEP 1: MEMORY-FIRST SEARCH
@@ -108,23 +117,55 @@ class ContextResolver:
         if candidates:
             logger.info(f"[RESOLVER] MEMORY MATCH → {len(candidates)} candidates")
 
-            # pick most recent
-            tool, date, data = candidates[0]
+            # ---------------------------------------------------
+            # ✅ SINGLE MATCH → direct
+            # ---------------------------------------------------
+            if len(candidates) == 1:
+                tool, date, data = candidates[0]
 
-            return {
-                "resolution": "direct",
-                "date": date,
-                "required_tools": [tool],
-                "cached_outputs": {tool: data},
-                "missing_tools": [],
-                "source": "memory",
-            }
+                return {
+                    "resolution": "direct",
+                    "date": date,
+                    "required_tools": [tool],
+                    "cached_outputs": {tool: data},
+                    "missing_tools": [],
+                    "source": "memory",
+                }
+
+            # ---------------------------------------------------
+            # 🔥 MULTIPLE MATCH → ambiguity
+            # ---------------------------------------------------
+            else:
+                logger.info("[RESOLVER] AMBIGUOUS MEMORY MATCH")
+
+                return {
+                    "resolution": "ambiguous",
+                    "candidates": [
+                        {
+                            "tool": tool,
+                            "date": date,
+                        }
+                        for (tool, date, _) in candidates
+                    ],
+                    "source": "memory",
+                }
 
         # ---------------------------------------------------
         # 🔻 STEP 2: NORMAL RESOLUTION
         # ---------------------------------------------------
         tools = classify_domain(query)
         date = extract_date(query)
+
+        # ---------------------------------------------------
+        # 🔥 SAFEGUARD: enforce adjusted intent
+        # ---------------------------------------------------
+        if tools and "adjusted" in q:
+            if "get_adjusted_forecast_tool" not in tools:
+                logger.info("[RESOLVER] forcing adjusted tool")
+                tools.append("get_adjusted_forecast_tool")
+
+            if "get_energy_forecast_tool" not in tools:
+                tools.append("get_energy_forecast_tool")
 
         # ---------------------------------------------------
         # 🔥 STEP 3: CONTEXT FILL FROM MEMORY
@@ -142,7 +183,9 @@ class ContextResolver:
                 logger.info("[RESOLVER] filling date from memory")
                 date = last_date
 
-        # safety fallback (only if nothing exists at all)
+        # ---------------------------------------------------
+        # 🔥 HARD FALLBACKS (LAST RESORT ONLY)
+        # ---------------------------------------------------
         if not tools:
             logger.info("[RESOLVER] fallback → solar (last resort)")
             tools = ["get_energy_forecast_tool"]
